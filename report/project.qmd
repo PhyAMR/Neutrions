@@ -1,0 +1,330 @@
+---
+project:
+  output-dir: projects/Grassi/output
+
+title: "Neutrino Oscillation Analysis with Machine Learning"
+author:
+  - name: Álvaro Méndez Rodríguez de Tembleque
+    email: alvaro.mendezrodriguezdetembleque@studenti.unipd.it
+    affiliations:
+      - name: Universita degli Studi di Padova
+        address: Department of physics and astronomy "Galileo Galilei"
+        city: City
+        postal-code: 12345
+  - name: Miguel Orden
+    email: alvaro.mendezrodriguezdetembleque@studenti.unipd.it
+    affiliations:
+      - name: Universita degli Studi di Padova
+        address: Department of physics and astronomy "Galileo Galilei"
+        city: City
+        postal-code: 12345
+  - name: Adrián Orellana
+    email: alvaro.mendezrodriguezdetembleque@studenti.unipd.it
+    affiliations:
+      - name: Universita degli Studi di Padova
+        address: Department of physics and astronomy "Galileo Galilei"
+        city: City
+        postal-code: 12345
+  - name: Carlos Hita
+    email: alvaro.mendezrodriguezdetembleque@studenti.unipd.it
+    affiliations:
+      - name: Universita degli Studi di Padova
+        address: Department of physics and astronomy "Galileo Galilei"
+        city: City
+        postal-code: 12345
+date: 2026-04-18
+format:
+  elsevier-pdf:
+    keep-tex: true
+    journal:
+      name: Laboratory of Computational Physics
+      formatting: preprint
+      cite-style: authoryear
+
+include-in-header:
+  text: |
+    \usepackage{fvextra}
+    \usepackage{witharrows}
+    \usepackage{amsmath}
+    \usepackage{listings}
+    \usepackage{geometry}[margin=0.25in]
+    \usetikzlibrary{calc}
+    \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+    \lstset{
+      basicstyle=\small\ttfamily,
+      breaklines=true,
+      frame=single,
+      numbers=left,
+      numberstyle=\tiny\color{gray},
+      captionpos=b,
+      language=python
+    }
+
+abstract: |
+  We present a machine learning-based approach to identify neutrino interactions from a dataset dominated by radioactive background. The analysis focuses on Inverse Beta Decay (IBD) event selection, using engineered features derived from event timing, spatial correlation, and energy deposition. A classification model is trained on simulated data and calibrated to account for discrepancies between training and real-world distributions. Selected events are used to reconstruct the neutrino energy spectrum and extract oscillation parameters.
+
+filters:
+  - move-code.lua
+jupyter: python3
+execute:
+  echo: false
+  warning: false
+  message: false
+  error: true
+bibliography: references.bib
+---
+
+
+
+# Introduction
+
+Neutrinos are weakly interacting particles that provide insight into fundamental physics beyond the Standard Model. Their detection is challenging due to extremely low interaction rates and significant background contamination.
+
+This work focuses on:
+
+- Identifying neutrino events via Inverse Beta Decay
+- Separating signal from dominant radioactive background
+- Reconstructing the neutrino energy spectrum
+- Extracting oscillation signatures
+
+---
+
+# Theoretical Background
+
+## Neutrino Detection
+
+Neutrinos are detected through the Inverse Beta Decay (IBD) process:
+
+$$
+\bar{\nu}_e + p \rightarrow n + e^+
+$$
+
+This interaction produces a characteristic **prompt-delayed** signal:
+
+- Prompt: positron energy deposition  
+- Delayed: neutron capture after a short time delay  
+
+## Signal and Background
+
+Signal events are characterized by:
+
+- Two events close in time
+- Spatial proximity
+- Correlated energy signatures  
+
+Background arises primarily from random coincidences of radioactive decays, which can mimic the signal.
+
+## Neutrino Oscillations
+
+Neutrino oscillation probabilities depend on the ratio:
+
+$$
+\frac{L}{E}
+$$
+
+where:
+
+- $L$ = distance from source to detector  
+- $E$ = neutrino energy  
+
+Oscillations are observed through distortions in the measured energy spectrum.
+
+---
+
+# Dataset and Preprocessing
+
+## Dataset Description
+
+The dataset consists of sequential events, each characterized by:
+
+- Energy
+- Position
+- Time :contentReference[oaicite:1]{index=1}  
+
+Simulated data provides labeled examples of:
+
+- Signal (IBD events)
+- Background events
+
+## Data Loading
+
+```{python}
+#| label: lst-load-data
+#| lst-cap: "Data loading and preprocessing with comprehensive exploratory analysis"
+
+import pyarrow.parquet as pq
+from ydata_profiling import ProfileReport
+import pandas as pd
+
+# Read as a Table
+table = pq.read_table('data/training/events.parquet')
+truth = pq.read_table('data/training/truth.parquet')
+
+# Convert to Pandas only if/when needed
+df = table.to_pandas()
+df_truth = truth.to_pandas()
+
+df_total = pd.concat([df,df_truth], axis=1)
+profile = ProfileReport(df_total, title="Profiling Report", explorative=True)
+profile.to_file("output/reports/profiling_report.html")
+df_total.head()
+
+```
+
+## Preprocessing
+
+* Event cleaning
+* Time ordering
+* Normalization of features
+
+---
+
+# Feature Engineering
+
+## Event Pair Construction
+
+Candidate signal events are constructed by pairing events based on temporal proximity.
+
+For each pair, the following features are computed:
+
+* Time difference $\Delta t$
+* Spatial distance $\Delta r$
+* Energy of prompt and delayed signals
+* Energy correlation
+
+```{python}
+# Pair construction logic
+```
+
+## Feature Selection
+
+Relevant features are selected based on their ability to discriminate between signal and background.
+
+---
+
+# Machine Learning Model
+
+## Problem Formulation
+
+We define a binary classification task:
+
+* $y = 1$: signal
+* $y = 0$: background
+
+## Model Architecture
+
+Possible models:
+
+* Feedforward Neural Network
+* Gradient Boosted Trees
+
+```{python}
+# Model definition
+```
+
+## Training Procedure
+
+* Train on balanced simulated dataset
+* Use train/validation split
+* Optimize classification performance
+
+---
+
+# Model Calibration
+
+## Motivation
+
+The training dataset is artificially balanced, while real data is highly imbalanced, leading to miscalibrated outputs .
+
+## Calibration Methods
+
+* Platt scaling
+* Isotonic regression
+* Likelihood reweighting
+
+```{python}
+# Calibration implementation
+```
+
+---
+
+# Event Selection Performance
+
+## Metrics
+
+* Efficiency (signal acceptance)
+* Purity (signal fraction)
+* ROC curve and AUC
+
+```{python}
+# Evaluation code
+```
+
+## Results
+
+* Performance comparison across models
+* Optimal selection threshold
+
+---
+
+# Energy Spectrum Reconstruction
+
+## Event Selection
+
+Apply the trained and calibrated model to select neutrino candidates.
+
+```{python}
+# Apply selection
+```
+
+## Spectrum Construction
+
+Reconstruct the neutrino energy spectrum from selected events.
+
+```{python}
+# Histogram / spectrum
+```
+
+---
+
+# Oscillation Analysis
+
+## Near vs Far Detector Comparison
+
+Oscillation effects are extracted by comparing spectra between detectors, reducing systematic uncertainties .
+
+## Parameter Extraction
+
+Fit oscillation parameters from the observed spectrum distortion.
+
+```{python}
+# Fit procedure
+```
+
+---
+
+# Discussion
+
+## Limitations
+
+* Background dominance
+* Model dependence on simulation
+* Calibration uncertainties
+
+## Improvements
+
+* More robust feature engineering
+* Domain adaptation techniques
+* Better uncertainty estimation
+
+---
+
+# Conclusion
+
+We developed a machine learning pipeline for neutrino event selection in a high-background environment. The method successfully identifies signal events, reconstructs the energy spectrum, and enables the extraction of oscillation parameters.
+
+---
+
+# References
+
+

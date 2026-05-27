@@ -1,0 +1,596 @@
+% Options for packages loaded elsewhere
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+\PassOptionsToPackage{dvipsnames,svgnames,x11names}{xcolor}
+%
+\documentclass[
+  authoryear,
+  preprint]{elsarticle}
+\usepackage{xcolor}
+\usepackage{amsmath,amssymb}
+\setcounter{secnumdepth}{5}
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math} % this also loads fontspec
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else
+  % xetex/luatex font selection
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+% Make \paragraph and \subparagraph free-standing
+\makeatletter
+\ifx\paragraph\undefined\else
+  \let\oldparagraph\paragraph
+  \renewcommand{\paragraph}{
+    \@ifstar
+      \xxxParagraphStar
+      \xxxParagraphNoStar
+  }
+  \newcommand{\xxxParagraphStar}[1]{\oldparagraph*{#1}\mbox{}}
+  \newcommand{\xxxParagraphNoStar}[1]{\oldparagraph{#1}\mbox{}}
+\fi
+\ifx\subparagraph\undefined\else
+  \let\oldsubparagraph\subparagraph
+  \renewcommand{\subparagraph}{
+    \@ifstar
+      \xxxSubParagraphStar
+      \xxxSubParagraphNoStar
+  }
+  \newcommand{\xxxSubParagraphStar}[1]{\oldsubparagraph*{#1}\mbox{}}
+  \newcommand{\xxxSubParagraphNoStar}[1]{\oldsubparagraph{#1}\mbox{}}
+\fi
+\makeatother
+
+
+\usepackage{longtable,booktabs,array}
+\usepackage{calc} % for calculating minipage widths
+% Correct order of tables after \paragraph or \subparagraph
+\usepackage{etoolbox}
+\makeatletter
+\patchcmd\longtable{\par}{\if@noskipsec\mbox{}\fi\par}{}{}
+\makeatother
+% Allow footnotes in longtable head/foot
+\IfFileExists{footnotehyper.sty}{\usepackage{footnotehyper}}{\usepackage{footnote}}
+\makesavenoteenv{longtable}
+\usepackage{graphicx}
+\makeatletter
+\newsavebox\pandoc@box
+\newcommand*\pandocbounded[1]{% scales image to fit in text height/width
+  \sbox\pandoc@box{#1}%
+  \Gscale@div\@tempa{\textheight}{\dimexpr\ht\pandoc@box+\dp\pandoc@box\relax}%
+  \Gscale@div\@tempb{\linewidth}{\wd\pandoc@box}%
+  \ifdim\@tempb\p@<\@tempa\p@\let\@tempa\@tempb\fi% select the smaller of both
+  \ifdim\@tempa\p@<\p@\scalebox{\@tempa}{\usebox\pandoc@box}%
+  \else\usebox{\pandoc@box}%
+  \fi%
+}
+% Set default figure placement to htbp
+\def\fps@figure{htbp}
+\makeatother
+
+
+
+
+
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
+
+
+ 
+\usepackage[]{natbib}
+\bibliographystyle{elsarticle-harv}
+
+
+\usepackage{fvextra}
+\usepackage{witharrows}
+\usepackage{amsmath}
+\usepackage{listings}
+\usepackage{geometry}[margin=0.25in]
+\usetikzlibrary{calc}
+\DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+\lstset{
+  basicstyle=\small\ttfamily,
+  breaklines=true,
+  frame=single,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  captionpos=b,
+  language=python
+}
+\makeatletter
+\@ifpackageloaded{caption}{}{\usepackage{caption}}
+\AtBeginDocument{%
+\ifdefined\contentsname
+  \renewcommand*\contentsname{Table of contents}
+\else
+  \newcommand\contentsname{Table of contents}
+\fi
+\ifdefined\listfigurename
+  \renewcommand*\listfigurename{List of Figures}
+\else
+  \newcommand\listfigurename{List of Figures}
+\fi
+\ifdefined\listtablename
+  \renewcommand*\listtablename{List of Tables}
+\else
+  \newcommand\listtablename{List of Tables}
+\fi
+\ifdefined\figurename
+  \renewcommand*\figurename{Figure}
+\else
+  \newcommand\figurename{Figure}
+\fi
+\ifdefined\tablename
+  \renewcommand*\tablename{Table}
+\else
+  \newcommand\tablename{Table}
+\fi
+}
+\@ifpackageloaded{float}{}{\usepackage{float}}
+\floatstyle{ruled}
+\@ifundefined{c@chapter}{\newfloat{codelisting}{h}{lop}}{\newfloat{codelisting}{h}{lop}[chapter]}
+\floatname{codelisting}{Listing}
+\newcommand*\listoflistings{\listof{codelisting}{List of Listings}}
+\makeatother
+\makeatletter
+\makeatother
+\makeatletter
+\@ifpackageloaded{caption}{}{\usepackage{caption}}
+\@ifpackageloaded{subcaption}{}{\usepackage{subcaption}}
+\makeatother
+\makeatletter
+\definecolor{QuartoInternalColor4}{rgb}{0.00,0.45,0.15}
+\definecolor{QuartoInternalColor8}{rgb}{0.00,0.40,0.79}
+\definecolor{QuartoInternalColor5}{rgb}{0.00,0.40,0.00}
+\definecolor{QuartoInternalColor9}{rgb}{0.70,0.49,0.07}
+\definecolor{QuartoInternalColor2}{rgb}{0,0,0}
+\definecolor{QuartoInternalColor6}{rgb}{0.20,0.40,0.40}
+\definecolor{QuartoInternalColor10}{rgb}{0.60,0.00,1.00}
+\definecolor{QuartoInternalColor3}{rgb}{0.15,0.56,0.56}
+\definecolor{QuartoInternalColor1}{rgb}{0.70,0.17,0.19}
+\definecolor{QuartoInternalColor7}{rgb}{0.74,0.74,0.74}
+\makeatother
+\journal{Laboratory of Computational Physics}
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same}
+\hypersetup{
+  pdftitle={Neutrino Oscillation Analysis with Machine Learning},
+  pdfauthor={Álvaro Méndez Rodríguez de Tembleque; Miguel Orden; Adrián Orellana; Carlos Hita},
+  colorlinks=true,
+  linkcolor={blue},
+  filecolor={Maroon},
+  citecolor={Blue},
+  urlcolor={Blue},
+  pdfcreator={LaTeX via pandoc}}
+
+
+\setlength{\parindent}{6pt}
+\begin{document}
+
+\begin{frontmatter}
+\title{Neutrino Oscillation Analysis with Machine Learning}
+\author[1]{Álvaro Méndez Rodríguez de Tembleque%
+%
+}
+ \ead{alvaro.mendezrodriguezdetembleque@studenti.unipd.it} 
+\author[1]{Miguel Orden%
+%
+}
+ \ead{alvaro.mendezrodriguezdetembleque@studenti.unipd.it} 
+\author[1]{Adrián Orellana%
+%
+}
+ \ead{alvaro.mendezrodriguezdetembleque@studenti.unipd.it} 
+\author[1]{Carlos Hita%
+%
+}
+ \ead{alvaro.mendezrodriguezdetembleque@studenti.unipd.it} 
+
+\affiliation[1]{organization={Universita degli Studi di
+Padova},addressline={Department of physics and astronomy ``Galileo
+Galilei''},city={City},postcode={12345},postcodesep={}}
+
+\cortext[cor1]{Corresponding author}
+
+
+
+
+        
+\begin{abstract}
+We present a machine learning-based approach to identify neutrino
+interactions from a dataset dominated by radioactive background. The
+analysis focuses on Inverse Beta Decay (IBD) event selection, using
+engineered features derived from event timing, spatial correlation, and
+energy deposition. A classification model is trained on simulated data
+and calibrated to account for discrepancies between training and
+real-world distributions. Selected events are used to reconstruct the
+neutrino energy spectrum and extract oscillation parameters.
+\end{abstract}
+
+
+
+
+
+\end{frontmatter}
+    
+
+\section{Introduction}\label{introduction}
+
+Neutrinos are weakly interacting particles that provide insight into
+fundamental physics beyond the Standard Model. Their detection is
+challenging due to extremely low interaction rates and significant
+background contamination.
+
+This work focuses on:
+
+\begin{itemize}
+\tightlist
+\item
+  Identifying neutrino events via Inverse Beta Decay
+\item
+  Separating signal from dominant radioactive background
+\item
+  Reconstructing the neutrino energy spectrum
+\item
+  Extracting oscillation signatures
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Theoretical Background}\label{theoretical-background}
+
+\subsection{Neutrino Detection}\label{neutrino-detection}
+
+Neutrinos are detected through the Inverse Beta Decay (IBD) process:
+
+\[
+\bar{\nu}_e + p \rightarrow n + e^+
+\]
+
+This interaction produces a characteristic \textbf{prompt-delayed}
+signal:
+
+\begin{itemize}
+\tightlist
+\item
+  Prompt: positron energy deposition\\
+\item
+  Delayed: neutron capture after a short time delay
+\end{itemize}
+
+\subsection{Signal and Background}\label{signal-and-background}
+
+Signal events are characterized by:
+
+\begin{itemize}
+\tightlist
+\item
+  Two events close in time
+\item
+  Spatial proximity
+\item
+  Correlated energy signatures
+\end{itemize}
+
+Background arises primarily from random coincidences of radioactive
+decays, which can mimic the signal.
+
+\subsection{Neutrino Oscillations}\label{neutrino-oscillations}
+
+Neutrino oscillation probabilities depend on the ratio:
+
+\[
+\frac{L}{E}
+\]
+
+where:
+
+\begin{itemize}
+\tightlist
+\item
+  \(L\) = distance from source to detector\\
+\item
+  \(E\) = neutrino energy
+\end{itemize}
+
+Oscillations are observed through distortions in the measured energy
+spectrum.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Dataset and Preprocessing}\label{dataset-and-preprocessing}
+
+\subsection{Dataset Description}\label{dataset-description}
+
+The dataset consists of sequential events, each characterized by:
+
+\begin{itemize}
+\tightlist
+\item
+  Energy
+\item
+  Position
+\item
+  Time :contentReference{oaicite:1}
+\end{itemize}
+
+Simulated data provides labeled examples of:
+
+\begin{itemize}
+\tightlist
+\item
+  Signal (IBD events)
+\item
+  Background events
+\end{itemize}
+
+\subsection{Data Loading}\label{data-loading}
+
+\begin{codelisting}
+
+\caption{\label{lst-load-data}}
+
+\centering{
+
+\begin{Highlighting}
+\textcolor{black}{ModuleNotFoundError: No module named 'pkg\_resources'}
+\textcolor{black}{}\textcolor{QuartoInternalColor1}{---------------------------------------------------------------------------}\textcolor{QuartoInternalColor2}{}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor1}{ModuleNotFoundError}\textcolor{QuartoInternalColor2}{                       Traceback (most recent call last)}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor3}{Cell}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor3}{ }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{In[1]}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{, line 2}\textcolor{QuartoInternalColor2}{}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{      1}\textcolor{QuartoInternalColor2}{ }\textcolor{QuartoInternalColor5}{import}\textcolor{QuartoInternalColor2}{ pyarrow.parquet }\textcolor{QuartoInternalColor5}{as}\textcolor{QuartoInternalColor2}{ pq}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{----> }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{2}\textcolor{QuartoInternalColor2}{ }\textcolor{QuartoInternalColor5}{from}\textcolor{QuartoInternalColor2}{ ydata\_profiling }\textcolor{QuartoInternalColor5}{import}\textcolor{QuartoInternalColor2}{ ProfileReport}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{      3}\textcolor{QuartoInternalColor2}{ }\textcolor{QuartoInternalColor5}{import}\textcolor{QuartoInternalColor2}{ pandas }\textcolor{QuartoInternalColor5}{as}\textcolor{QuartoInternalColor2}{ pd}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{      4}\textcolor{QuartoInternalColor2}{ }
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{      5}\textcolor{QuartoInternalColor2}{ }\textcolor{QuartoInternalColor6}{# Read as a Table}\textcolor{QuartoInternalColor2}{}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor3}{File }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{\textasciitilde{}/Desktop/master/2sem/LCPB/projects/.venv/lib/python3.13/site-packages/ydata\_profiling/\_\_init\_\_.py:11}\textcolor{QuartoInternalColor2}{}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{      8}\textcolor{QuartoInternalColor2}{ }\textcolor{QuartoInternalColor5}{import}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor7}{ }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{importlib}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{.}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{util}\textcolor{QuartoInternalColor2}{  }\textcolor{QuartoInternalColor6}{# isort:skip # noqa}\textcolor{QuartoInternalColor2}{}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{      9}\textcolor{QuartoInternalColor2}{ }\textcolor{QuartoInternalColor5}{from}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor7}{ }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{warnings}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor7}{ }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor5}{import}\textcolor{QuartoInternalColor2}{ warn}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{---> }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{11}\textcolor{QuartoInternalColor2}{ }\textcolor{QuartoInternalColor5}{from}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor7}{ }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{ydata\_profiling}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{.}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{compare\_reports}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor7}{ }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor5}{import}\textcolor{QuartoInternalColor2}{ compare  }\textcolor{QuartoInternalColor6}{# isort:skip # noqa}\textcolor{QuartoInternalColor2}{}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{     12}\textcolor{QuartoInternalColor2}{ }\textcolor{QuartoInternalColor5}{from}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor7}{ }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{ydata\_profiling}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{.}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{controller}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor7}{ }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor5}{import}\textcolor{QuartoInternalColor2}{ pandas\_decorator  }\textcolor{QuartoInternalColor6}{# isort:skip # noqa}\textcolor{QuartoInternalColor2}{}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{     13}\textcolor{QuartoInternalColor2}{ }\textcolor{QuartoInternalColor5}{from}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor7}{ }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{ydata\_profiling}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{.}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{profile\_report}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor7}{ }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor5}{import}\textcolor{QuartoInternalColor2}{ ProfileReport  }\textcolor{QuartoInternalColor6}{# isort:skip # noqa}\textcolor{QuartoInternalColor2}{}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor3}{File }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{\textasciitilde{}/Desktop/master/2sem/LCPB/projects/.venv/lib/python3.13/site-packages/ydata\_profiling/compare\_reports.py:12}\textcolor{QuartoInternalColor2}{}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{     10}\textcolor{QuartoInternalColor2}{ }\textcolor{QuartoInternalColor5}{from}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor7}{ }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{ydata\_profiling}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{.}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{model}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor7}{ }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor5}{import}\textcolor{QuartoInternalColor2}{ BaseDescription}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{     11}\textcolor{QuartoInternalColor2}{ }\textcolor{QuartoInternalColor5}{from}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor7}{ }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{ydata\_profiling}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{.}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{model}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{.}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{alerts}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor7}{ }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor5}{import}\textcolor{QuartoInternalColor2}{ Alert}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{---> }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{12}\textcolor{QuartoInternalColor2}{ }\textcolor{QuartoInternalColor5}{from}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor7}{ }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{ydata\_profiling}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{.}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{profile\_report}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor7}{ }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor5}{import}\textcolor{QuartoInternalColor2}{ ProfileReport}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{     15}\textcolor{QuartoInternalColor2}{ }\textcolor{QuartoInternalColor5}{def}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor7}{ }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor8}{\_should\_wrap}\textcolor{QuartoInternalColor2}{(v1: Any, v2: Any) -> }\textcolor{QuartoInternalColor5}{bool}\textcolor{QuartoInternalColor2}{:}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{     16}\textcolor{QuartoInternalColor2}{     }\textcolor{QuartoInternalColor5}{if}\textcolor{QuartoInternalColor2}{ }\textcolor{QuartoInternalColor5}{isinstance}\textcolor{QuartoInternalColor2}{(v1, (}\textcolor{QuartoInternalColor5}{list}\textcolor{QuartoInternalColor2}{, }\textcolor{QuartoInternalColor5}{dict}\textcolor{QuartoInternalColor2}{)):}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor3}{File }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{\textasciitilde{}/Desktop/master/2sem/LCPB/projects/.venv/lib/python3.13/site-packages/ydata\_profiling/profile\_report.py:11}\textcolor{QuartoInternalColor2}{}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{      9}\textcolor{QuartoInternalColor2}{ }\textcolor{QuartoInternalColor5}{with}\textcolor{QuartoInternalColor2}{ warnings.catch\_warnings():}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{     10}\textcolor{QuartoInternalColor2}{     warnings.simplefilter(}\textcolor{QuartoInternalColor9}{"}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor9}{ignore}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor9}{"}\textcolor{QuartoInternalColor2}{)}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{---> }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{11}\textcolor{QuartoInternalColor2}{     }\textcolor{QuartoInternalColor5}{import}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor7}{ }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{pkg\_resources}\textcolor{QuartoInternalColor2}{}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{     13}\textcolor{QuartoInternalColor2}{ }\textcolor{QuartoInternalColor5}{if}\textcolor{QuartoInternalColor2}{ }\textcolor{QuartoInternalColor10}{not}\textcolor{QuartoInternalColor2}{ is\_pyspark\_installed():}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor4}{     14}\textcolor{QuartoInternalColor2}{     }\textcolor{QuartoInternalColor5}{from}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor7}{ }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor2}{typing}\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor7}{ }\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor5}{import}\textcolor{QuartoInternalColor2}{ TypeVar}
+\textcolor{QuartoInternalColor2}{}\textcolor{QuartoInternalColor1}{ModuleNotFoundError}\textcolor{QuartoInternalColor2}{: No module named 'pkg\_resources'}
+\end{Highlighting}
+
+}
+
+\end{codelisting}%
+
+\subsection{Preprocessing}\label{preprocessing}
+
+\begin{itemize}
+\tightlist
+\item
+  Event cleaning
+\item
+  Time ordering
+\item
+  Normalization of features
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Feature Engineering}\label{feature-engineering}
+
+\subsection{Event Pair Construction}\label{event-pair-construction}
+
+Candidate signal events are constructed by pairing events based on
+temporal proximity.
+
+For each pair, the following features are computed:
+
+\begin{itemize}
+\tightlist
+\item
+  Time difference \(\Delta t\)
+\item
+  Spatial distance \(\Delta r\)
+\item
+  Energy of prompt and delayed signals
+\item
+  Energy correlation
+\end{itemize}
+
+\subsection{Feature Selection}\label{feature-selection}
+
+Relevant features are selected based on their ability to discriminate
+between signal and background.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Machine Learning Model}\label{machine-learning-model}
+
+\subsection{Problem Formulation}\label{problem-formulation}
+
+We define a binary classification task:
+
+\begin{itemize}
+\tightlist
+\item
+  \(y = 1\): signal
+\item
+  \(y = 0\): background
+\end{itemize}
+
+\subsection{Model Architecture}\label{model-architecture}
+
+Possible models:
+
+\begin{itemize}
+\tightlist
+\item
+  Feedforward Neural Network
+\item
+  Gradient Boosted Trees
+\end{itemize}
+
+\subsection{Training Procedure}\label{training-procedure}
+
+\begin{itemize}
+\tightlist
+\item
+  Train on balanced simulated dataset
+\item
+  Use train/validation split
+\item
+  Optimize classification performance
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Model Calibration}\label{model-calibration}
+
+\subsection{Motivation}\label{motivation}
+
+The training dataset is artificially balanced, while real data is highly
+imbalanced, leading to miscalibrated outputs .
+
+\subsection{Calibration Methods}\label{calibration-methods}
+
+\begin{itemize}
+\tightlist
+\item
+  Platt scaling
+\item
+  Isotonic regression
+\item
+  Likelihood reweighting
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Event Selection Performance}\label{event-selection-performance}
+
+\subsection{Metrics}\label{metrics}
+
+\begin{itemize}
+\tightlist
+\item
+  Efficiency (signal acceptance)
+\item
+  Purity (signal fraction)
+\item
+  ROC curve and AUC
+\end{itemize}
+
+\subsection{Results}\label{results}
+
+\begin{itemize}
+\tightlist
+\item
+  Performance comparison across models
+\item
+  Optimal selection threshold
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Energy Spectrum
+Reconstruction}\label{energy-spectrum-reconstruction}
+
+\subsection{Event Selection}\label{event-selection}
+
+Apply the trained and calibrated model to select neutrino candidates.
+
+\subsection{Spectrum Construction}\label{spectrum-construction}
+
+Reconstruct the neutrino energy spectrum from selected events.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Oscillation Analysis}\label{oscillation-analysis}
+
+\subsection{Near vs Far Detector
+Comparison}\label{near-vs-far-detector-comparison}
+
+Oscillation effects are extracted by comparing spectra between
+detectors, reducing systematic uncertainties .
+
+\subsection{Parameter Extraction}\label{parameter-extraction}
+
+Fit oscillation parameters from the observed spectrum distortion.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Discussion}\label{discussion}
+
+\subsection{Limitations}\label{limitations}
+
+\begin{itemize}
+\tightlist
+\item
+  Background dominance
+\item
+  Model dependence on simulation
+\item
+  Calibration uncertainties
+\end{itemize}
+
+\subsection{Improvements}\label{improvements}
+
+\begin{itemize}
+\tightlist
+\item
+  More robust feature engineering
+\item
+  Domain adaptation techniques
+\item
+  Better uncertainty estimation
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Conclusion}\label{conclusion}
+
+We developed a machine learning pipeline for neutrino event selection in
+a high-background environment. The method successfully identifies signal
+events, reconstructs the energy spectrum, and enables the extraction of
+oscillation parameters.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+
+\renewcommand\refname{References}
+\bibliography{references.bib}
+
+
+
+\end{document}
