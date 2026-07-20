@@ -1,0 +1,119 @@
+# config/training.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# Central configuration for the training pipeline.
+# All paths are relative to the project root.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+data:
+  features_path: "data/processed/events_features.parquet"
+  labels_path:   "data/processed/events_labels.parquet"
+
+  # Column in labels file that defines the binary target.
+  # "detected" → 1,  "radio" → 0
+  target_col:    "label_name_2"
+  positive_label: "detected"
+
+  # Stratified split ratios (must sum to 1.0)
+  # train / val / calibration / test
+  splits:
+    train:       0.60
+    val:         0.15
+    calibration: 0.10
+    test:        0.15
+
+  # Reproducibility seed for all splits and samplers
+  random_seed: 42
+
+
+# ── Features ──────────────────────────────────────────────────────────────────
+features:
+  # Explicit ordered feature list fed to the model.
+  # Order must match MLPModel.FEATURE_NAMES / LGBMModel (N_FEATURES = 28).
+  # Individual anchor (prompt)
+  include:
+    - t_1
+    - E_1
+    - x_1
+    - y_1
+    - z_1
+    - r_1
+    - r2_1
+    - phi_1
+    - D_1
+    # Individual partner (delayed)
+    - t_2
+    - E_2
+    - x_2
+    - y_2
+    - z_2
+    - r_2
+    - r2_2
+    - phi_2
+    - D_2
+    # Delta features
+    - dt
+    - dE
+    - dx
+    - dy
+    - dz
+    - dr
+    - dr2
+    - dphi
+    - dD
+    # Derived spatial separation
+    - dR
+  # Columns to always exclude regardless of include list
+  exclude: []
+
+
+# ── Hyperparameter optimisation (Optuna) ──────────────────────────────────────
+optuna:
+  # Primary metric to maximise during HPO.
+  # Options: pr_auc | roc_auc | f1 | g_mean | mcc
+  # PR-AUC is recommended for imbalanced problems (Thölke et al., 2023).
+  metric:        "pr_auc"
+  direction:     "maximize"
+
+  n_trials:      50
+  timeout:       3600          # seconds; null to disable
+  n_jobs:        1             # parallel jobs (-1 = all cores)
+
+  # Pruning: stop unpromising trials early (MedianPruner)
+  pruning:       true
+
+  # Storage for Optuna study (null = in-memory only)
+  # Use "sqlite:///outputs/optuna.db" to persist across runs.
+  storage:       null
+  study_name:    "ibd_classification"
+
+
+# ── Calibration ───────────────────────────────────────────────────────────────
+calibration:
+  # method: isotonic (large calibration set) | platt (small calibration set)
+  method:        "isotonic"
+  # Minimum calibration samples below which Platt is used automatically
+  min_isotonic_samples: 1000
+
+
+# ── Threshold selection ───────────────────────────────────────────────────────
+threshold:
+  # strategy: f1 | cost | gmean
+  strategy:      "cost"
+
+  # Used only when strategy = "cost"
+  # fn_cost >> fp_cost: missing a detected IBD pair is worse than a false alarm
+  fp_cost:       1.0
+  fn_cost:       10.0
+
+  # Number of candidate thresholds swept during search
+  n_steps:       500
+
+
+# ── Outputs ───────────────────────────────────────────────────────────────────
+outputs:
+  root:          "outputs/models"
+  # Subdirectory name is set programmatically to: <model_name>/<timestamp>
+  save_model:    true
+  save_metrics:  true
+  save_study:    true          # export Optuna study as JSON

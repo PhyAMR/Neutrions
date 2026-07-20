@@ -1,0 +1,24 @@
+nohup: ignoring input
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1780168090.221277  818866 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1780168091.369025  818866 cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+2026-05-30 21:08:12  trainer               INFO      Config loaded from training.yaml
+2026-05-30 21:08:12  trainer               INFO      Loading features from data/processed/events_features.parquet …
+2026-05-30 21:08:12  trainer               INFO      Loading labels from data/processed/events_labels.parquet …
+2026-05-30 21:08:12  trainer               INFO      Data loaded: 201596 samples, 9 features | positives: 100797 (50.0%) negatives: 100799 (50.0%)
+2026-05-30 21:08:12  trainer               INFO      Split train         :  120956 rows | pos=50.0%
+2026-05-30 21:08:12  trainer               INFO      Split val           :   30240 rows | pos=50.0%
+2026-05-30 21:08:12  trainer               INFO      Split calibration   :   20160 rows | pos=50.0%
+2026-05-30 21:08:12  trainer               INFO      Split test          :   30240 rows | pos=50.0%
+2026-05-30 21:08:12  trainer               INFO      Starting HPO: 50 trials, metric=pr_auc, direction=maximize …
+E0000 00:00:1780168092.788845  818866 cuda_platform.cc:52] failed call to cuInit: INTERNAL: CUDA error: Failed call to cuInit: UNKNOWN ERROR (303)
+2026-05-30 22:08:41  trainer               INFO      HPO complete. Best pr_auc=0.9571 | params: {'n_layers': 3, 'units_l0': 150, 'units_l1': 32, 'units_l2': 452, 'use_l2': False, 'activation': 'relu', 'dropout_rate': 0.007797399829228058, 'use_bn': True, 'learning_rate': 4.6494447832313834e-05, 'batch_size': 256}
+2026-05-30 22:08:41  trainer               INFO      Refitting best model on train+val …
+2026-05-30 22:11:27  trainer               INFO      Calibrating probabilities with isotonic …
+2026-05-30 22:11:28  trainer               INFO      Threshold (cost strategy): 0.0521  cost=5397.0
+2026-05-30 22:11:28  trainer               INFO      Test results — PR-AUC: 0.9395  ROC-AUC: 0.9446  F1: 0.8152  MCC: 0.6099  G-mean: 0.7460  (threshold=0.052)
+2026-05-30 22:11:28  trainer               INFO      Total pipeline time: 3796.7 s
+2026-05-30 22:11:28  trainer               INFO      Run directory: outputs/models/MLPModel/20260530_221128
+2026-05-30 22:11:28  trainer               INFO      Metrics saved → outputs/models/MLPModel/20260530_221128/metrics.json
+2026-05-30 22:11:28  trainer               INFO      Optuna study saved → outputs/models/MLPModel/20260530_221128/optuna_study.json

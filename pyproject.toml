@@ -22,4 +22,13 @@ dependencies = [
     "tqdm>=4.67.3",
     "umap-learn>=0.5.11",
     "xgboost>=3.2.0",
+    "plotly>=6.7.0",
+    "optuna>=4.8.0",
+]
+
+[tool.pyright]
+include = ["src"]
+extraPaths = ["."]
+executionEnvironments = [
+  { root = "." }
 ]

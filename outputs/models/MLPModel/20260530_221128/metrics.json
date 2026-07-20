@@ -1,0 +1,30 @@
+{
+  "threshold": 0.052104208416833664,
+  "test_metrics": {
+    "pr_auc": 0.9394898204409825,
+    "roc_auc": 0.9446190616164162,
+    "f1": 0.8152428719402497,
+    "precision": 0.6934062876750441,
+    "recall": 0.989021164021164,
+    "specificity": 0.5626984126984127,
+    "mcc": 0.6099239344813207,
+    "g_mean": 0.7460031093231754,
+    "threshold": 0.052104208416833664,
+    "tp": 14954,
+    "fp": 6612,
+    "tn": 8508,
+    "fn": 166
+  },
+  "best_params": {
+    "n_layers": 3,
+    "units_l0": 150,
+    "units_l1": 32,
+    "units_l2": 452,
+    "use_l2": false,
+    "activation": "relu",
+    "dropout_rate": 0.007797399829228058,
+    "use_bn": true,
+    "learning_rate": 4.6494447832313834e-05,
+    "batch_size": 256
+  }
+}

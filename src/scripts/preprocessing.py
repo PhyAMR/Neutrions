@@ -22,7 +22,6 @@ From another script:
 from __future__ import annotations
 
 import logging
-import os
 import sys
 import time
 from pathlib import Path
@@ -46,12 +45,16 @@ RAW_FILES = {
 }
 
 PROCESSED_FILES = {
-    "total_features":  PROCESSED_DIR / "total_features.parquet",
-    "total_labels":    PROCESSED_DIR / "total_labels.parquet",
-    "events_features": PROCESSED_DIR / "events_features.parquet",
-    "events_labels":   PROCESSED_DIR / "events_labels.parquet",
+    "total_features":         PROCESSED_DIR / "total_features.parquet",
+    "total_labels":           PROCESSED_DIR / "total_labels.parquet",
+    "events_features":        PROCESSED_DIR / "events_features.parquet",
+    "events_labels":          PROCESSED_DIR / "events_labels.parquet",
+    "false_events_features":  PROCESSED_DIR / "false_events_features.parquet",
+    "false_events_labels":    PROCESSED_DIR / "false_events_labels.parquet",
 }
 
+#: Raw column names assigned after concat of events + truth parquet files.
+#: The 4 engineered coordinates are appended separately in _load_raw.
 COLUMN_NAMES = [
     "time", "energy", "x", "y", "z",
     "label", "pair_id", "label_name",
@@ -66,21 +69,41 @@ LABEL_COLS_TOTAL  = ["label", "pair_id", "label_name"]
 PAIR_THRESHOLD_NS = 10 * 200_000   # 2 ms expressed in nanoseconds
 
 #: Number of completed pairs accumulated in memory before flushing to disk.
-#: Tune upward for fewer I/O round-trips, downward to reduce peak RAM.
 FLUSH_EVERY = 500_000
 
-#: Only delta features and label columns are kept in the events output.
-#: Every other column (_1 / _2 raw values) is discarded after pairing.
-EVENTS_DELTA_COLS = [
-    "delta_t", "delta_energy",
-    "delta_x", "delta_y", "delta_z",
-    "delta_r", "delta_r2", "delta_phi", "delta_distance",
-]
-EVENTS_LABEL_COLS = ["label_1", "pair_id_1", "label_name_1",
-                     "label_2", "pair_id_2", "label_name_2"]
+# ── Physics-notation column mapping ──────────────────────────────────────────
+# Raw column name → physics label used in output parquet files.
+# Applied once in _rename_pair_columns() after the pair scan.
+_RAW_TO_PHYS: dict[str, str] = {
+    "time":     "t",
+    "energy":   "E",
+    "x":        "x",
+    "y":        "y",
+    "z":        "z",
+    "r":        "r",
+    "r2":       "r2",
+    "phi":      "phi",
+    "distance": "D",
+}
 
-#: Union used for the dropna guard — all of these must be non-null to keep a row.
-REQUIRED_EVENT_COLS = EVENTS_DELTA_COLS + EVENTS_LABEL_COLS
+# Individual per-event columns kept in the output (both _1 and _2 variants).
+# Named t_1, E_1, x_1 … and t_2, E_2, x_2 …
+_INDIV_BASE = list(_RAW_TO_PHYS.values())   # ['t','E','x','y','z','r','r2','phi','D']
+
+EVENTS_INDIV_COLS = (
+    [f"{p}_1" for p in _INDIV_BASE] +
+    [f"{p}_2" for p in _INDIV_BASE]
+)
+
+# Delta columns: Δt, ΔE, Δx, Δy, Δz, Δr, Δr2, Δphi, ΔD + derived ΔR
+EVENTS_DELTA_COLS = [f"d{p}" for p in _INDIV_BASE] + ["dR"]
+# dR = sqrt(dx²+dy²+dz²) — 3D spatial separation, key IBD discriminant
+
+# Label columns kept in the output: anchor pair_id + both label_names
+EVENTS_LABEL_COLS = ["pair_id", "label_name_1", "label_name_2"]
+
+# All columns that must be non-null to keep a paired row
+REQUIRED_EVENT_COLS = EVENTS_INDIV_COLS + EVENTS_DELTA_COLS + EVENTS_LABEL_COLS
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging
@@ -257,7 +280,8 @@ def _find_forward_pairs(
     arrays: dict[str, np.ndarray] = {c: df[c].to_numpy() for c in all_cols}
     times  = arrays["time"]
 
-    # Column names for the output table: <col>_1, <col>_2, delta_t, delta_*
+    # Column names for the raw tmp output: <col>_1, <col>_2, delta_t, delta_*
+    # These are internal names — physics renaming happens in _project_pairs_chunked.
     out_col_names = (
         [f"{c}_1" for c in all_cols]
         + [f"{c}_2" for c in all_cols]
@@ -333,6 +357,289 @@ def _find_forward_pairs(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# False-pair finding logic
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _find_false_pairs(
+    df:          pd.DataFrame,
+    threshold:   int  = PAIR_THRESHOLD_NS,
+    flush_every: int  = FLUSH_EVERY,
+    out_path:    Path = PROCESSED_DIR / "_false_pairs_tmp.parquet",
+    mode:        str  = "double_window",
+) -> Path:
+    """Sliding-window false-pair scan — events guaranteed to be uncorrelated.
+
+    For each anchor event ``i``, valid partners are events whose time separation
+    from ``i`` is strictly **beyond** the coincidence threshold, making physical
+    correlation impossible.
+
+    Modes
+    -----
+    ``"double_window"`` *(default)*
+        Partners satisfy ``threshold < t_k - t_i <= 2 * threshold``.
+        This gives a dataset of the same temporal character as the real pairs
+        (bounded gap) and is directly comparable in size and structure.
+
+    ``"all_beyond"``
+        Partners satisfy ``t_k - t_i > threshold`` with no upper bound.
+        Produces a much larger dataset.  Use with care — on 25 M events this
+        can generate hundreds of billions of pairs.  Consider pairing with a
+        downstream sample when loading.
+
+    The output schema is identical to ``_find_forward_pairs`` so both datasets
+    can be fed to the same plotting and modelling code.
+
+    Parameters
+    ----------
+    df          : Full event DataFrame (sorted or unsorted).
+    threshold   : Coincidence window in nanoseconds (same as forward pairs).
+    flush_every : Pairs buffered before each disk flush.
+    out_path    : Temporary parquet file for streaming output.
+    mode        : ``"double_window"`` or ``"all_beyond"``.
+
+    Returns
+    -------
+    Path to the written parquet file.
+    """
+    if mode not in ("double_window", "all_beyond"):
+        raise ValueError(f"mode must be 'double_window' or 'all_beyond', got {mode!r}")
+
+    df = df.sort_values("time").reset_index(drop=True)
+    n  = len(df)
+
+    numeric_cols  = df.select_dtypes(include=[np.number]).columns.tolist()
+    cols_to_delta = [c for c in numeric_cols if c != "time"]
+    all_cols      = df.columns.tolist()
+
+    arrays: dict[str, np.ndarray] = {c: df[c].to_numpy() for c in all_cols}
+    times  = arrays["time"]
+
+    out_col_names = (
+        [f"{c}_1" for c in all_cols]
+        + [f"{c}_2" for c in all_cols]
+        + ["delta_t"]
+        + [f"delta_{c}" for c in cols_to_delta]
+    )
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    log.info(
+        "False-pair scan (mode=%r) — %d events, threshold=%d ns, flush every %d pairs …",
+        mode, n, threshold, flush_every,
+    )
+    t0 = time.perf_counter()
+
+    writer:      pq.ParquetWriter | None = None
+    total_pairs: int                     = 0
+
+    buf: dict[str, list] = {name: [] for name in out_col_names}
+
+    def _flush() -> None:
+        nonlocal writer
+        table = pa.table({name: pa.array(lst) for name, lst in buf.items()})
+        if writer is None:
+            writer = pq.ParquetWriter(out_path, table.schema)
+        writer.write_table(table)
+        for lst in buf.values():
+            lst.clear()
+
+    # Two pointers that track the valid partner window for each anchor i:
+    #   j_lo  — first index where t_k - t_i  > threshold       (window start)
+    #   j_hi  — last  index where t_k - t_i <= 2 * threshold   (window end,
+    #            double_window only; ignored in all_beyond mode)
+    j_lo: int = 0
+
+    for i in range(n):
+        t_i      = times[i]
+       # lo_bound = t_i + threshold          # exclusive lower bound
+        hi_bound = t_i + 2 * threshold      # inclusive upper bound (double_window)
+
+        # Advance j_lo to the first index strictly beyond the threshold.
+        # j_lo never resets — it can only move right.
+        while j_lo < n and times[j_lo] - t_i <= threshold:
+            j_lo += 1
+
+        if j_lo >= n:
+            break   # no events beyond threshold remain for any future i
+
+        if mode == "double_window":
+            # Find j_hi: last index within the second window.
+            # Since j_lo already advanced, start searching from there.
+            # Use a local scan — j_hi resets per-i but the window is small.
+            j_hi = j_lo
+            while j_hi + 1 < n and times[j_hi + 1] <= hi_bound:
+                j_hi += 1
+            partner_range = range(j_lo, j_hi + 1)
+        else:
+            # all_beyond: every remaining event after j_lo
+            partner_range = range(j_lo, n)
+
+        for k in partner_range:
+            delta_t = int(times[k] - t_i)
+
+            for c in all_cols:
+                buf[f"{c}_1"].append(arrays[c][i])
+                buf[f"{c}_2"].append(arrays[c][k])
+            buf["delta_t"].append(delta_t)
+            for c in cols_to_delta:
+                buf[f"delta_{c}"].append(arrays[c][k] - arrays[c][i])
+
+            if len(buf["delta_t"]) >= flush_every:
+                _flush()
+                total_pairs += flush_every
+                log.info("  … flushed %d pairs (total so far: %d)", flush_every, total_pairs)
+
+    remainder = len(buf["delta_t"])
+    if remainder:
+        _flush()
+        total_pairs += remainder
+
+    if writer is None:
+        log.warning("No false pairs found beyond %d ns.", threshold)
+        empty = pd.DataFrame(columns=out_col_names)
+        empty.to_parquet(out_path, index=False)
+    else:
+        writer.close()
+
+    elapsed = time.perf_counter() - t0
+    log.info(
+        "False-pair scan complete: %d pairs in %.1f s → %s",
+        total_pairs, elapsed, out_path,
+    )
+    return out_path
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Chunked projection helper
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _rename_pair_columns(chunk: pd.DataFrame) -> pd.DataFrame:
+    """Rename raw tmp pair columns to physics notation and compute derived cols.
+
+    Input columns (from _find_forward_pairs / _find_false_pairs):
+        <raw>_1, <raw>_2  — individual measurements for anchor and partner
+        delta_t, delta_<raw>  — time difference and per-quantity deltas
+        label_1, pair_id_1, label_name_1, label_2, pair_id_2, label_name_2
+
+    Output columns:
+        Individual : t_1, E_1, x_1, y_1, z_1, r_1, r2_1, phi_1, D_1  (anchor)
+                     t_2, E_2, x_2, y_2, z_2, r_2, r2_2, phi_2, D_2  (partner)
+        Deltas     : dt, dE, dx, dy, dz, dr, dr2, dphi, dD
+        Derived    : dR = sqrt(dx²+dy²+dz²)   [3D spatial separation]
+        Labels     : pair_id, label_name_1, label_name_2
+    """
+    rename: dict[str, str] = {}
+
+    # Individual columns: time_1 → t_1, energy_1 → E_1, distance_1 → D_1, …
+    for raw, phys in _RAW_TO_PHYS.items():
+        rename[f"{raw}_1"] = f"{phys}_1"
+        rename[f"{raw}_2"] = f"{phys}_2"
+
+    # Delta columns: delta_time → dt, delta_energy → dE, …
+    rename["delta_t"] = "dt"
+    for raw, phys in _RAW_TO_PHYS.items():
+        if raw != "time":
+            rename[f"delta_{raw}"] = f"d{phys}"
+
+    # Label columns: keep pair_id_1 as pair_id (pair_id_2 is identical for IBD)
+    rename["pair_id_1"] = "pair_id"
+
+    chunk = chunk.rename(columns=rename)
+
+    # Derived column: 3D spatial separation ΔR = sqrt(Δx²+Δy²+Δz²)
+    chunk["dR"] = np.sqrt(chunk["dx"]**2 + chunk["dy"]**2 + chunk["dz"]**2)
+
+    # Drop all columns that are not physics observables or target labels.
+    # Includes numeric label ids, redundant pair_id_2, and delta_label /
+    # delta_pair_id which are numeric artefacts of the pair scan.
+    _drop = ["label_1", "label_2", "pair_id_2", "delta_label", "delta_pair_id"]
+    chunk = chunk.drop(columns=[c for c in _drop if c in chunk.columns])
+
+    return chunk
+
+
+def _project_pairs_chunked(
+    tmp_path:   Path,
+    feat_path:  Path,
+    label_path: Path,
+) -> int:
+    """Rename, derive columns, filter and split a raw pairs parquet file.
+
+    Reads the tmp parquet file one row-group at a time, applies physics-notation
+    renaming via ``_rename_pair_columns``, drops rows with any NaN in
+    ``REQUIRED_EVENT_COLS``, and streams the results into two separate
+    ``ParquetWriter`` files (features and labels).
+
+    Output schema
+    -------------
+    features : EVENTS_INDIV_COLS + EVENTS_DELTA_COLS
+               t_1…D_1, t_2…D_2, dt, dE, dx, dy, dz, dr, dr2, dphi, dD, dR
+    labels   : EVENTS_LABEL_COLS
+               pair_id, label_name_1, label_name_2
+
+    Parameters
+    ----------
+    tmp_path   : Path to the raw pairs parquet written by a find_*_pairs call.
+    feat_path  : Destination for the features parquet.
+    label_path : Destination for the labels parquet.
+
+    Returns
+    -------
+    Total number of rows written across all row groups.
+    """
+    pf           = pq.ParquetFile(tmp_path)
+    feat_writer:  pq.ParquetWriter | None = None
+    label_writer: pq.ParquetWriter | None = None
+    total_rows = 0
+
+    for rg_idx in range(pf.metadata.num_row_groups):
+        raw_chunk: pd.DataFrame = pf.read_row_group(rg_idx).to_pandas()
+
+        # Rename to physics notation and compute dR
+        chunk = _rename_pair_columns(raw_chunk)
+
+        # Drop rows missing any required column
+        chunk = chunk.dropna(subset=REQUIRED_EVENT_COLS)
+
+        if chunk.empty:
+            continue
+
+        feat_chunk  = pa.Table.from_pandas(
+            chunk[EVENTS_INDIV_COLS + EVENTS_DELTA_COLS], preserve_index=False
+        )
+        label_chunk = pa.Table.from_pandas(
+            chunk[EVENTS_LABEL_COLS], preserve_index=False
+        )
+
+        if feat_writer is None:
+            feat_writer  = pq.ParquetWriter(feat_path,  feat_chunk.schema)
+            label_writer = pq.ParquetWriter(label_path, label_chunk.schema)
+
+        feat_writer.write_table(feat_chunk)
+        label_writer.write_table(label_chunk)
+        total_rows += len(chunk)
+
+        log.info(
+            "  row-group %d/%d → %d rows kept (running total: %d)",
+            rg_idx + 1, pf.metadata.num_row_groups, len(chunk), total_rows,
+        )
+
+    if feat_writer is not None:
+        feat_writer.close()
+        label_writer.close()
+    else:
+        # No valid rows at all — write empty files so downstream never hits a
+        # missing-file error.
+        all_feat_cols  = EVENTS_INDIV_COLS + EVENTS_DELTA_COLS
+        empty_feat  = pa.table({c: pa.array([], type=pa.float64()) for c in all_feat_cols})
+        empty_label = pa.table({c: pa.array([], type=pa.string())  for c in EVENTS_LABEL_COLS})
+        pq.write_table(empty_feat,  feat_path)
+        pq.write_table(empty_label, label_path)
+
+    return total_rows
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main processing pipeline
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -350,42 +657,50 @@ def _process(raw_dir: Path) -> None:
     label_cols   = LABEL_COLS_TOTAL
     feature_cols = [c for c in df_total.columns if c not in label_cols]
 
-    # ── 3. Forward-pair construction (streams to a tmp parquet) ──────────────
+    # ── 3. Save total features / labels (these fit in RAM, written directly) ──
+    df_total[feature_cols].to_parquet(PROCESSED_FILES["total_features"], index=False)
+    log.info("Saved %-45s  (%d rows, %d cols)",
+             str(PROCESSED_FILES["total_features"]), len(df_total), len(feature_cols))
+
+    df_total[label_cols].to_parquet(PROCESSED_FILES["total_labels"], index=False)
+    log.info("Saved %-45s  (%d rows, %d cols)",
+             str(PROCESSED_FILES["total_labels"]), len(df_total), len(label_cols))
+
+    # ── 4. Forward-pair construction (streams to a tmp parquet) ──────────────
     tmp_path = _find_forward_pairs(df_total, threshold=PAIR_THRESHOLD_NS)
 
-    # ── 4. Load pairs, drop incomplete rows, split features / labels ─────────
-    log.info("Loading pairs from %s …", tmp_path)
-    paired = pq.read_table(tmp_path).to_pandas()
-
-    if paired.empty:
-        log.error("Pair table is empty — aborting without writing outputs.")
+    if not tmp_path.exists() or pq.read_metadata(tmp_path).num_rows == 0:
+        log.error("Pair table is empty — aborting.")
         tmp_path.unlink(missing_ok=True)
         sys.exit(1)
 
-    # Keep only the columns we actually need — drop all raw _1/_2 event values.
-    df_events = (
-        paired
-        .dropna(subset=REQUIRED_EVENT_COLS)
-        [REQUIRED_EVENT_COLS]
-        .copy()
+    # ── 5. Project real pairs row-group by row-group (never loads full table) ─
+    log.info("Projecting real pairs from %s …", tmp_path)
+    n_events = _project_pairs_chunked(
+        tmp_path,
+        PROCESSED_FILES["events_features"],
+        PROCESSED_FILES["events_labels"],
     )
-    log.info("After filtering to required columns: %d pairs, %d cols.",
-             len(df_events), len(df_events.columns))
-    del paired   # free RAM before writing the four outputs
-
-    # ── 5. Persist outputs ───────────────────────────────────────────────────
-    outputs = {
-        PROCESSED_FILES["total_features"]:  (df_total,  feature_cols),
-        PROCESSED_FILES["total_labels"]:    (df_total,  label_cols),
-        PROCESSED_FILES["events_features"]: (df_events, EVENTS_DELTA_COLS),
-        PROCESSED_FILES["events_labels"]:   (df_events, EVENTS_LABEL_COLS),
-    }
-
-    for path, (df, cols) in outputs.items():
-        df[cols].to_parquet(path, index=False)
-        log.info("Saved %-45s  (%d rows, %d cols)", str(path), len(df), len(cols))
-
+    log.info("Real pairs written: %d rows.", n_events)
     tmp_path.unlink(missing_ok=True)
+
+    # ── 6. False-pair construction (double-window complement) ─────────────────
+    tmp_false_path = _find_false_pairs(
+        df_total,
+        threshold=PAIR_THRESHOLD_NS,
+        mode="double_window",
+    )
+
+    # ── 7. Project false pairs row-group by row-group ─────────────────────────
+    log.info("Projecting false pairs from %s …", tmp_false_path)
+    n_false = _project_pairs_chunked(
+        tmp_false_path,
+        PROCESSED_FILES["false_events_features"],
+        PROCESSED_FILES["false_events_labels"],
+    )
+    log.info("False pairs written: %d rows.", n_false)
+    tmp_false_path.unlink(missing_ok=True)
+
     log.info("Preprocessing complete.")
 
 
