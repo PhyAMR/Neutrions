@@ -12,10 +12,10 @@ wheels/
 # Folders 
 data/
 logs/
-guides/
+
 
 # Heavy output files
-*.parquet
+
 *.pdf
 *.html
 
