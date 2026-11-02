@@ -97,7 +97,7 @@ EVENTS_DELTA_COLS = [f"d{p}" for p in _INDIV_BASE] + ["dR"]
 
 # Label columns kept in the output: We store all the labels that indicate the nature of
 # the event
-EVENTS_LABEL_COLS = ["pair_id_1", "pair_id_2", "label_1", "label_2", "label_name_1", "label_name_2"]
+EVENTS_LABEL_COLS = ["pair_id_1", "pair_id_2", "label_1", "label_2", "label_name_1", "label_name_2", "is_ibd", "pair_type"]
 
 # All columns that must be non-null to keep a paired row
 REQUIRED_EVENT_COLS = EVENTS_INDIV_COLS + EVENTS_DELTA_COLS + EVENTS_LABEL_COLS
@@ -490,7 +490,7 @@ def _rename_pair_columns(chunk: pd.DataFrame) -> pd.DataFrame:
                      t_2, E_2, x_2, y_2, z_2, r_2, r2_2, phi_2, D_2  (partner)
         Deltas     : dt, dE, dx, dy, dz, dr, dr2, dphi, dD
         Derived    : dR = sqrt(dx²+dy²+dz²)   [3D spatial separation]
-        Labels     : pair_id, label_name_1, label_name_2
+        Labels     : pair_id, label_1, label_2, is_ibd, pair_type 
     """
     rename: dict[str, str] = {}
 
@@ -509,6 +509,15 @@ def _rename_pair_columns(chunk: pd.DataFrame) -> pd.DataFrame:
 
     # Derived column: 3D spatial separation ΔR = sqrt(Δx²+Δy²+Δz²)
     chunk["dR"] = np.sqrt(chunk["dx"]**2 + chunk["dy"]**2 + chunk["dz"]**2)
+
+    # Filter to check whether is a true event or not
+    is_ibd = (chunk["pair_id_1"] == chunk["pair_id_2"]) & (chunk["pair_id_1"] != -1 ) & (chunk["label_1"] == 1) & (chunk["label_2"] == 2)
+    chunk["is_ibd"] = is_ibd.astype(int)
+
+    # Filter to know which type of pair is, true (ibd), accidental (acc_ibd) or false (radio_radio) 
+    pair_type = np.select([(chunk["is_ibd"] == 0) &
+        ((chunk["label_1"] != 3) | (chunk["label_2"] !=3)), (chunk["label_1"] == 3) &( chunk["label_2"] == 3) ], ["acc_ibd", "radio_radio"], default="ibd")
+    chunk["pair_type"] = pair_type
 
     return chunk
 
@@ -587,7 +596,7 @@ def _project_pairs_chunked(
         # missing-file error.
         all_feat_cols  = EVENTS_INDIV_COLS + EVENTS_DELTA_COLS
         empty_feat  = pa.table({c: pa.array([], type=pa.float64()) for c in all_feat_cols})
-        empty_label = pa.table({c: pa.array([], type=(pa.string() if "label_name" in c else pa.int64()) )  for c in EVENTS_LABEL_COLS})
+        empty_label = pa.table({c: pa.array([], type=(pa.string() if "label_name" in c or c == "pair_type" else pa.int64()) )  for c in EVENTS_LABEL_COLS})
         pq.write_table(empty_feat,  feat_path)
         pq.write_table(empty_label, label_path)
 
