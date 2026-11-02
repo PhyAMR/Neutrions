@@ -63,7 +63,8 @@ COLUMN_NAMES = [
 
 LABEL_COLS_TOTAL  = ["pair_id", "label", "label_name"]
 PAIR_THRESHOLD_NS = 10 * 200_000   # 2 ms expressed in nanoseconds
-
+DETECTOR_RADIUS_M = 1.5 # Radius of the instrument in meters 
+DETECTOR_HALF_HEIGHT_M = 1.55 #height of the instrument in meters 
 #: Number of completed pairs accumulated in memory before flushing to disk.
 FLUSH_EVERY = 500_000
 
@@ -88,7 +89,8 @@ _INDIV_BASE = list(_RAW_TO_PHYS.values())   # ['t','E','x','y','z','r','r2','phi
 
 EVENTS_INDIV_COLS = (
     [f"{p}_1" for p in _INDIV_BASE] +
-    [f"{p}_2" for p in _INDIV_BASE]
+    [f"{p}_2" for p in _INDIV_BASE] + 
+    ["dwall_1", "dwall_2"]
 )
 
 # Delta columns: Δt, ΔE, Δx, Δy, Δz, Δr, Δr2, Δphi, ΔD + derived ΔR
@@ -472,6 +474,31 @@ def _find_false_pairs(
     )
     return out_path
 
+def _event_distance_to_wall(r: pd.Series, z: pd.Series, radius: float= DETECTOR_RADIUS_M, half_height: float=DETECTOR_HALF_HEIGHT_M) -> pd.Series : 
+    """This helper function recieves the horizontal and vertical position of the event and computes the minimum distance to
+    the walls of the instrument
+
+    Parameters
+    ----------
+     r: pd.Series
+        Horizontal distance where the event occurs, in m 
+    z: pd.Series 
+        Vertical position of the event, in m 
+    radius: float 
+        Radius of the instrument, in m. Default DETECTOR_RADIUS_M 
+    half_height: float
+        Half height of the instrument, in m. Default DETECTOR_HALF_HEIGHT_M
+        
+
+    Returns
+    -------
+    dist_wall: pd.Series
+        Distance to the closest wall at the time of the event 
+    """
+
+    dist_wall = np.minimum(radius-r,half_height-np.abs(z)
+                    )
+    return pd.Series(dist_wall)  
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Chunked projection helper
@@ -489,8 +516,8 @@ def _rename_pair_columns(chunk: pd.DataFrame) -> pd.DataFrame:
         Individual : t_1, E_1, x_1, y_1, z_1, r_1, r2_1, phi_1, D_1  (anchor)
                      t_2, E_2, x_2, y_2, z_2, r_2, r2_2, phi_2, D_2  (partner)
         Deltas     : dt, dE, dx, dy, dz, dr, dr2, dphi, dD
-        Derived    : dR = sqrt(dx²+dy²+dz²)   [3D spatial separation]
-        Labels     : pair_id, label_1, label_2, is_ibd, pair_type 
+        Derived    : dR = sqrt(dx²+dy²+dz²)   [3D spatial separation], dwall_1, dwall_2
+        Labels     : pair_id_1, pair_id_2, label_name_1, label_name_2, is_ibd, pair_type, label_1, label_2 
     """
     rename: dict[str, str] = {}
 
@@ -510,6 +537,9 @@ def _rename_pair_columns(chunk: pd.DataFrame) -> pd.DataFrame:
     # Derived column: 3D spatial separation ΔR = sqrt(Δx²+Δy²+Δz²)
     chunk["dR"] = np.sqrt(chunk["dx"]**2 + chunk["dy"]**2 + chunk["dz"]**2)
 
+    # Distance to the nearest detector wall (side or cap), in m
+    chunk["dwall_1"] = _event_distance_to_wall(chunk["r_1"], chunk["z_1"])
+    chunk["dwall_2"] = _event_distance_to_wall(chunk["r_2"], chunk["z_2"])
     # Filter to check whether is a true event or not
     is_ibd = (chunk["pair_id_1"] == chunk["pair_id_2"]) & (chunk["pair_id_1"] != -1 ) & (chunk["label_1"] == 1) & (chunk["label_2"] == 2)
     chunk["is_ibd"] = is_ibd.astype(int)
