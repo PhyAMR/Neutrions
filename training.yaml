@@ -10,9 +10,9 @@ data:
   labels_path:   "data/processed/events_labels.parquet"
 
   # Column in labels file that defines the binary target.
-  # "detected" → 1,  "radio" → 0
-  target_col:    "label_name_2"
-  positive_label: "detected"
+  # 1 -> is_ibd, 0 -> not_ibd
+  target_col:    "is_ibd"
+  positive_label: 1
 
   # Stratified split ratios (must sum to 1.0)
   # train / val / calibration / test
@@ -29,40 +29,22 @@ data:
 # ── Features ──────────────────────────────────────────────────────────────────
 features:
   # Explicit ordered feature list fed to the model.
-  # Order must match MLPModel.FEATURE_NAMES / LGBMModel (N_FEATURES = 28).
+  # Order must match MLPModel.FEATURE_NAMES / LGBMModel (N_FEATURES = 10).
   # Individual anchor (prompt)
   include:
-    - t_1
     - E_1
-    - x_1
-    - y_1
     - z_1
-    - r_1
     - r2_1
-    - phi_1
-    - D_1
     # Individual partner (delayed)
-    - t_2
     - E_2
-    - x_2
-    - y_2
-    - z_2
-    - r_2
-    - r2_2
-    - phi_2
-    - D_2
+    - z_2 
+    - r2_2 
     # Delta features
     - dt
-    - dE
-    - dx
-    - dy
-    - dz
-    - dr
-    - dr2
-    - dphi
-    - dD
     # Derived spatial separation
-    - dR
+    - dR 
+    - dwall_1
+    - dwall_2
   # Columns to always exclude regardless of include list
   exclude: []
 
