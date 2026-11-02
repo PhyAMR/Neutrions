@@ -95,7 +95,8 @@ EVENTS_INDIV_COLS = (
 EVENTS_DELTA_COLS = [f"d{p}" for p in _INDIV_BASE] + ["dR"]
 # dR = sqrt(dx²+dy²+dz²) — 3D spatial separation, key IBD discriminant
 
-# Label columns kept in the output: anchor pair_id + both label_names
+# Label columns kept in the output: We store all the labels that indicate the nature of
+# the event
 EVENTS_LABEL_COLS = ["pair_id_1", "pair_id_2", "label_1", "label_2", "label_name_1", "label_name_2"]
 
 # All columns that must be non-null to keep a paired row
@@ -504,19 +505,10 @@ def _rename_pair_columns(chunk: pd.DataFrame) -> pd.DataFrame:
         if raw != "time":
             rename[f"delta_{raw}"] = f"d{phys}"
 
-    # Label columns: keep pair_id_1 as pair_id (pair_id_2 is identical for IBD)
-    #rename["pair_id_1"] = "pair_id"
-
     chunk = chunk.rename(columns=rename)
 
     # Derived column: 3D spatial separation ΔR = sqrt(Δx²+Δy²+Δz²)
     chunk["dR"] = np.sqrt(chunk["dx"]**2 + chunk["dy"]**2 + chunk["dz"]**2)
-
-    # Drop all columns that are not physics observables or target labels.
-    # Includes numeric label ids, redundant pair_id_2, and delta_label /
-    # delta_pair_id which are numeric artefacts of the pair scan.
-    _drop = [ "delta_label", "delta_pair_id"]
-    chunk = chunk.drop(columns=[c for c in _drop if c in chunk.columns])
 
     return chunk
 
@@ -614,7 +606,6 @@ def _process(raw_dir: Path) -> None:
     # ── 1. Base feature engineering ──────────────────────────────────────────
     df_total = _load_raw(raw_dir)
 
-    # ── 2. Merge IBD_p / IBD_d → 'detected' (id=12) before pairing ──────────
 
     label_cols   = LABEL_COLS_TOTAL
     feature_cols = [c for c in df_total.columns if c not in label_cols]
