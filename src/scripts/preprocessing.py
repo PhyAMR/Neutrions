@@ -61,11 +61,7 @@ COLUMN_NAMES = [
     "r", "r2", "phi", "distance",
 ]
 
-#: IBD_p and IBD_d are merged into a single 'detected' class before pairing.
-MERGE_LABEL_NAME_MAP: dict[str, str] = {"IBD_p": "detected", "IBD_d": "detected"}
-MERGE_LABEL_ID_MAP:   dict[int, int] = {1: 12, 2: 12}   # IBD_p=1, IBD_d=2 → detected=12
-
-LABEL_COLS_TOTAL  = ["label", "pair_id", "label_name"]
+LABEL_COLS_TOTAL  = ["pair_id", "label", "label_name"]
 PAIR_THRESHOLD_NS = 10 * 200_000   # 2 ms expressed in nanoseconds
 
 #: Number of completed pairs accumulated in memory before flushing to disk.
@@ -100,7 +96,7 @@ EVENTS_DELTA_COLS = [f"d{p}" for p in _INDIV_BASE] + ["dR"]
 # dR = sqrt(dx²+dy²+dz²) — 3D spatial separation, key IBD discriminant
 
 # Label columns kept in the output: anchor pair_id + both label_names
-EVENTS_LABEL_COLS = ["pair_id", "label_name_1", "label_name_2"]
+EVENTS_LABEL_COLS = ["pair_id_1", "pair_id_2", "label_1", "label_2", "label_name_1", "label_name_2"]
 
 # All columns that must be non-null to keep a paired row
 REQUIRED_EVENT_COLS = EVENTS_INDIV_COLS + EVENTS_DELTA_COLS + EVENTS_LABEL_COLS
@@ -191,39 +187,6 @@ def _load_raw(raw_dir: Path) -> pd.DataFrame:
     return df
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Label merging
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _relabel(df: pd.DataFrame) -> pd.DataFrame:
-    """Merge IBD_p and IBD_d into a single 'detected' class.
-
-    Both the human-readable column (``label_name``) and the numeric column
-    (``label``) are remapped according to ``MERGE_LABEL_NAME_MAP`` and
-    ``MERGE_LABEL_ID_MAP``.  ``radio`` (id=3) and ``pair_id=-1`` are unchanged.
-
-    After this step the dataset has exactly two classes:
-
-    +-----------+-------+
-    | label_name| label |
-    +===========+=======+
-    | radio     |   3   |
-    +-----------+-------+
-    | detected  |  12   |
-    +-----------+-------+
-    """
-    df = df.copy()
-    df["label_name"] = df["label_name"].replace(MERGE_LABEL_NAME_MAP)
-    df["label"]      = df["label"].replace(MERGE_LABEL_ID_MAP)
-
-    unique_names = sorted(df["label_name"].unique())
-    unique_ids   = sorted(df["label"].unique())
-    log.info(
-        "Labels after merging — names: %s  ids: %s",
-        unique_names, unique_ids,
-    )
-    return df
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Pair-finding logic
@@ -270,7 +233,7 @@ def _find_forward_pairs(
     n  = len(df)
 
     numeric_cols  = df.select_dtypes(include=[np.number]).columns.tolist()
-    cols_to_delta = [c for c in numeric_cols if c != "time"]
+    cols_to_delta = [c for c in numeric_cols if c not in ["time", "label", "pair_id"]]
     all_cols      = df.columns.tolist()
 
     # ── Extract every column as a numpy array up front ───────────────────────
@@ -408,7 +371,7 @@ def _find_false_pairs(
     n  = len(df)
 
     numeric_cols  = df.select_dtypes(include=[np.number]).columns.tolist()
-    cols_to_delta = [c for c in numeric_cols if c != "time"]
+    cols_to_delta = [c for c in numeric_cols if c not in ["time","label","pair_id"]]
     all_cols      = df.columns.tolist()
 
     arrays: dict[str, np.ndarray] = {c: df[c].to_numpy() for c in all_cols}
@@ -542,7 +505,7 @@ def _rename_pair_columns(chunk: pd.DataFrame) -> pd.DataFrame:
             rename[f"delta_{raw}"] = f"d{phys}"
 
     # Label columns: keep pair_id_1 as pair_id (pair_id_2 is identical for IBD)
-    rename["pair_id_1"] = "pair_id"
+    #rename["pair_id_1"] = "pair_id"
 
     chunk = chunk.rename(columns=rename)
 
@@ -552,7 +515,7 @@ def _rename_pair_columns(chunk: pd.DataFrame) -> pd.DataFrame:
     # Drop all columns that are not physics observables or target labels.
     # Includes numeric label ids, redundant pair_id_2, and delta_label /
     # delta_pair_id which are numeric artefacts of the pair scan.
-    _drop = ["label_1", "label_2", "pair_id_2", "delta_label", "delta_pair_id"]
+    _drop = [ "delta_label", "delta_pair_id"]
     chunk = chunk.drop(columns=[c for c in _drop if c in chunk.columns])
 
     return chunk
@@ -632,7 +595,7 @@ def _project_pairs_chunked(
         # missing-file error.
         all_feat_cols  = EVENTS_INDIV_COLS + EVENTS_DELTA_COLS
         empty_feat  = pa.table({c: pa.array([], type=pa.float64()) for c in all_feat_cols})
-        empty_label = pa.table({c: pa.array([], type=pa.string())  for c in EVENTS_LABEL_COLS})
+        empty_label = pa.table({c: pa.array([], type=(pa.string() if "label_name" in c else pa.int64()) )  for c in EVENTS_LABEL_COLS})
         pq.write_table(empty_feat,  feat_path)
         pq.write_table(empty_label, label_path)
 
@@ -652,7 +615,6 @@ def _process(raw_dir: Path) -> None:
     df_total = _load_raw(raw_dir)
 
     # ── 2. Merge IBD_p / IBD_d → 'detected' (id=12) before pairing ──────────
-    df_total = _relabel(df_total)
 
     label_cols   = LABEL_COLS_TOTAL
     feature_cols = [c for c in df_total.columns if c not in label_cols]
