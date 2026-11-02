@@ -253,6 +253,7 @@ def _find_forward_pairs(
         + [f"{c}_2" for c in all_cols]
         + ["delta_t"]
         + [f"delta_{c}" for c in cols_to_delta]
+        + ["n_in_window","n_before"]
     )
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -266,7 +267,7 @@ def _find_forward_pairs(
     writer:      pq.ParquetWriter | None = None
     total_pairs: int                     = 0
     j:           int                     = 0          # right pointer (never resets)
-
+    b:           int                     = 0 
     # Per-column output buffers — one plain Python list per column.
     # Only flush_every scalars live in RAM at once per column.
     buf: dict[str, list] = {name: [] for name in out_col_names}
@@ -283,19 +284,25 @@ def _find_forward_pairs(
 
     for i in range(n):
         t_i = times[i]
-
+        # Move b to the first event at most T before t_i (older events are skipped) 
+        while b<i and t_i -times[b] > threshold:
+            b += 1  
+                    
         # Advance j while the next event is still within the threshold
         while j + 1 < n and times[j + 1] - t_i <= threshold:
             j += 1
+        n_before = i-b 
+        n_in_window = j-i 
 
         # Emit all pairs (i, k) for k in (i, j]
         for k in range(i + 1, j + 1):
             delta_t = int(times[k] - t_i)
-
             for c in all_cols:
                 buf[f"{c}_1"].append(arrays[c][i])
                 buf[f"{c}_2"].append(arrays[c][k])
             buf["delta_t"].append(delta_t)
+            buf["n_in_window"].append(n_in_window)
+            buf["n_before"].append(n_before)
             for c in cols_to_delta:
                 buf[f"delta_{c}"].append(arrays[c][k] - arrays[c][i])
 
