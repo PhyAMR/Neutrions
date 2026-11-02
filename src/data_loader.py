@@ -108,7 +108,7 @@ _RAW_FILES = {
 _FEAT_COLS: frozenset[str] = frozenset([
     "t_1","E_1","x_1","y_1","z_1","r_1","r2_1","phi_1","D_1",
     "t_2","E_2","x_2","y_2","z_2","r_2","r2_2","phi_2","D_2",
-    "dt","dE","dx","dy","dz","dr","dr2","dphi","dD","dR",
+    "dt","dE","dx","dy","dz","dr","dr2","dphi","dD","dR","dwall_1","dwall_2",
 ])
 _LABEL_COLS: frozenset[str] = frozenset(["pair_id","label_name_1","label_name_2"])
 
