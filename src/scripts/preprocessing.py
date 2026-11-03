@@ -382,7 +382,7 @@ def _find_false_pairs(
         + [f"{c}_2" for c in all_cols]
         + ["delta_t"]
         + [f"delta_{c}" for c in cols_to_delta]
-        + ["k_window", "dt_shifted", "n_before"]
+        + ["k_window", "dt_shifted", "n_before", "n_gap", "n_on", "n_in_window"]
     )
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -433,15 +433,29 @@ def _find_false_pairs(
         j_hi = j_lo
         while j_hi + 1 < n and times[j_hi + 1] <= hi_bound:
             j_hi += 1
+
+        
         partner_range = range(j_lo, j_hi + 1)
         n_before = i - b
-
+        n_on = j_lo -i - 1
+        counts = [0]*(n_off + 1)
         for k in partner_range:
             delta_t = int(times[k] - t_i)
-            # 
+             
             k_window = int(np.ceil(delta_t/threshold)) -1 
-
+            counts[k_window] += 1
+ 
+        for k in partner_range:
+            delta_t = int(times[k] - t_i)
+             
+            k_window = int(np.ceil(delta_t/threshold)) -1 
+            
             dt_shifted = delta_t - k_window * threshold 
+
+            n_gap = n_on + sum(counts[:k_window])
+
+            n_in_window = counts[k_window]
+
             for c in all_cols:
                 buf[f"{c}_1"].append(arrays[c][i])
                 buf[f"{c}_2"].append(arrays[c][k])
@@ -449,6 +463,9 @@ def _find_false_pairs(
             buf["k_window"].append(k_window)
             buf["dt_shifted"].append(dt_shifted)
             buf["n_before"].append(n_before)
+            buf["n_on"].append(n_on)
+            buf["n_gap"].append(n_gap)
+            buf["n_in_window"].append(n_in_window)
             for c in cols_to_delta:
                 buf[f"delta_{c}"].append(arrays[c][k] - arrays[c][i])
 
