@@ -236,7 +236,7 @@ def _find_forward_pairs(
     -------
     Path to the written parquet file.
     """
-    df = df.sort_values("time").reset_index(drop=True)
+    df = df.sort_values(["time","label"],kind='stable').reset_index(drop=True)
     n  = len(df)
 
     numeric_cols  = df.select_dtypes(include=[np.number]).columns.tolist()
@@ -386,7 +386,7 @@ def _find_false_pairs(
     Path to the written parquet file.
     """
 
-    df = df.sort_values("time").reset_index(drop=True)
+    df = df.sort_values(["time","label"],kind='stable').reset_index(drop=True)
     n  = len(df)
 
     numeric_cols  = df.select_dtypes(include=[np.number]).columns.tolist()
