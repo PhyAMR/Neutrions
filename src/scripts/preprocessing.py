@@ -254,6 +254,7 @@ def _find_forward_pairs(
         + ["delta_t"]
         + [f"delta_{c}" for c in cols_to_delta]
         + ["n_in_window","n_before"]
+        + ["k_window","dt_shifted","n_gap","n_on"] # Columns so forward and of window functions produce the same structure
     )
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -293,16 +294,30 @@ def _find_forward_pairs(
             j += 1
         n_before = i-b 
         n_in_window = j-i 
+        
+        n_on = n_in_window
 
         # Emit all pairs (i, k) for k in (i, j]
         for k in range(i + 1, j + 1):
             delta_t = int(times[k] - t_i)
+
+            k_window = 0 
+            
+            dt_shifted = delta_t 
+
+            n_gap = 0 
+
+            
             for c in all_cols:
                 buf[f"{c}_1"].append(arrays[c][i])
                 buf[f"{c}_2"].append(arrays[c][k])
             buf["delta_t"].append(delta_t)
             buf["n_in_window"].append(n_in_window)
             buf["n_before"].append(n_before)
+            buf["k_window"].append(k_window)
+            buf["dt_shifted"].append(dt_shifted)
+            buf["n_gap"].append(n_gap)
+            buf["n_on"].append(n_on)
             for c in cols_to_delta:
                 buf[f"delta_{c}"].append(arrays[c][k] - arrays[c][i])
 
@@ -567,7 +582,9 @@ def _rename_pair_columns(chunk: pd.DataFrame) -> pd.DataFrame:
     pair_type = np.select([(chunk["is_ibd"] == 0) &
         ((chunk["label_1"] != 3) | (chunk["label_2"] !=3)), (chunk["label_1"] == 3) &( chunk["label_2"] == 3) ], ["acc_ibd", "radio_radio"], default="ibd")
     chunk["pair_type"] = pair_type
-
+    is_dc = (chunk["n_before"] == 0) & (chunk["n_gap"]==0) & (chunk["n_in_window"]
+                                                              == 1)
+    chunk["is_dc"] = is_dc.astype(int) 
     return chunk
 
 
