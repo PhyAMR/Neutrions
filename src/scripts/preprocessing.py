@@ -338,7 +338,7 @@ def _find_false_pairs(
     threshold:   int  = PAIR_THRESHOLD_NS,
     flush_every: int  = FLUSH_EVERY,
     out_path:    Path = PROCESSED_DIR / "_false_pairs_tmp.parquet",
-    mode:        str  = "double_window",
+    n_off:       int = 10
 ) -> Path:
     """Sliding-window false-pair scan — events guaranteed to be uncorrelated.
 
@@ -346,19 +346,7 @@ def _find_false_pairs(
     from ``i`` is strictly **beyond** the coincidence threshold, making physical
     correlation impossible.
 
-    Modes
-    -----
-    ``"double_window"`` *(default)*
-        Partners satisfy ``threshold < t_k - t_i <= 2 * threshold``.
-        This gives a dataset of the same temporal character as the real pairs
-        (bounded gap) and is directly comparable in size and structure.
-
-    ``"all_beyond"``
-        Partners satisfy ``t_k - t_i > threshold`` with no upper bound.
-        Produces a much larger dataset.  Use with care — on 25 M events this
-        can generate hundreds of billions of pairs.  Consider pairing with a
-        downstream sample when loading.
-
+   
     The output schema is identical to ``_find_forward_pairs`` so both datasets
     can be fed to the same plotting and modelling code.
 
@@ -368,14 +356,12 @@ def _find_false_pairs(
     threshold   : Coincidence window in nanoseconds (same as forward pairs).
     flush_every : Pairs buffered before each disk flush.
     out_path    : Temporary parquet file for streaming output.
-    mode        : ``"double_window"`` or ``"all_beyond"``.
+    n_off        : Number of threshold units so the windows are from (t_i + k*T, t_i + (k+1)*T] k = 1, .., n_off
 
     Returns
     -------
     Path to the written parquet file.
     """
-    if mode not in ("double_window", "all_beyond"):
-        raise ValueError(f"mode must be 'double_window' or 'all_beyond', got {mode!r}")
 
     df = df.sort_values("time").reset_index(drop=True)
     n  = len(df)
@@ -397,8 +383,8 @@ def _find_false_pairs(
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     log.info(
-        "False-pair scan (mode=%r) — %d events, threshold=%d ns, flush every %d pairs …",
-        mode, n, threshold, flush_every,
+        "False-pair scan n_off=%d — %d events, threshold=%d ns, flush every %d pairs …",
+         n_off, n, threshold, flush_every,
     )
     t0 = time.perf_counter()
 
@@ -418,14 +404,14 @@ def _find_false_pairs(
 
     # Two pointers that track the valid partner window for each anchor i:
     #   j_lo  — first index where t_k - t_i  > threshold       (window start)
-    #   j_hi  — last  index where t_k - t_i <= 2 * threshold   (window end,
+    #   j_hi  — last  index where t_k+1 - t_i <=  threshold   (window end,
     #            double_window only; ignored in all_beyond mode)
     j_lo: int = 0
 
     for i in range(n):
         t_i      = times[i]
        # lo_bound = t_i + threshold          # exclusive lower bound
-        hi_bound = t_i + 2 * threshold      # inclusive upper bound (double_window)
+        hi_bound = t_i + (n_off+1) * threshold      # inclusive upper bound 
 
         # Advance j_lo to the first index strictly beyond the threshold.
         # j_lo never resets — it can only move right.
@@ -435,18 +421,13 @@ def _find_false_pairs(
         if j_lo >= n:
             break   # no events beyond threshold remain for any future i
 
-        if mode == "double_window":
-            # Find j_hi: last index within the second window.
-            # Since j_lo already advanced, start searching from there.
-            # Use a local scan — j_hi resets per-i but the window is small.
-            j_hi = j_lo
-            while j_hi + 1 < n and times[j_hi + 1] <= hi_bound:
-                j_hi += 1
-            partner_range = range(j_lo, j_hi + 1)
-        else:
-            # all_beyond: every remaining event after j_lo
-            partner_range = range(j_lo, n)
-
+        if times[j_lo] > hi_bound:
+            continue # No events for this off-window window
+        j_hi = j_lo
+        while j_hi + 1 < n and times[j_hi + 1] <= hi_bound:
+            j_hi += 1
+        partner_range = range(j_lo, j_hi + 1)
+        
         for k in partner_range:
             delta_t = int(times[k] - t_i)
 
@@ -687,7 +668,6 @@ def _process(raw_dir: Path) -> None:
     tmp_false_path = _find_false_pairs(
         df_total,
         threshold=PAIR_THRESHOLD_NS,
-        mode="double_window",
     )
 
     # ── 7. Project false pairs row-group by row-group ─────────────────────────
