@@ -356,7 +356,11 @@ def _find_false_pairs(
     threshold   : Coincidence window in nanoseconds (same as forward pairs).
     flush_every : Pairs buffered before each disk flush.
     out_path    : Temporary parquet file for streaming output.
-    n_off        : Number of threshold units so the windows are from (t_i + k*T, t_i + (k+1)*T] k = 1, .., n_off
+    n_off       : Number of threshold units so the windows are from (t_i + k*T, t_i + (k+1)*T] k = 1, .., n_off
+    K_window    : Gives as the time window where the pairs are found so we can compute the
+    counting error later
+    dt_shifted  : Gives the time difference with respect to the last window to compute
+    the counting error
 
     Returns
     -------
@@ -378,6 +382,7 @@ def _find_false_pairs(
         + [f"{c}_2" for c in all_cols]
         + ["delta_t"]
         + [f"delta_{c}" for c in cols_to_delta]
+        + ["k_window", "dt_shifted"]
     )
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -405,7 +410,6 @@ def _find_false_pairs(
     # Two pointers that track the valid partner window for each anchor i:
     #   j_lo  — first index where t_k - t_i  > threshold       (window start)
     #   j_hi  — last  index where t_k+1 - t_i <=  threshold   (window end,
-    #            double_window only; ignored in all_beyond mode)
     j_lo: int = 0
 
     for i in range(n):
@@ -430,11 +434,16 @@ def _find_false_pairs(
         
         for k in partner_range:
             delta_t = int(times[k] - t_i)
+            # 
+            k_window = int(np.ceil(delta_t/threshold)) -1 
 
+            dt_shifted = delta_t - k_window * threshold 
             for c in all_cols:
                 buf[f"{c}_1"].append(arrays[c][i])
                 buf[f"{c}_2"].append(arrays[c][k])
             buf["delta_t"].append(delta_t)
+            buf["k_window"].append(k_window)
+            buf["dt_shifted"].append(dt_shifted)
             for c in cols_to_delta:
                 buf[f"delta_{c}"].append(arrays[c][k] - arrays[c][i])
 
