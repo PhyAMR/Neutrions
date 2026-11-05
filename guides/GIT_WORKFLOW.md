@@ -1,76 +1,131 @@
-# Local Git Workflow Guide
+# Git workflow
 
-Because this repository is being built by multiple developers sharing the **same physical machine** (and currently without a remote like GitHub), it is vital to coordinate work carefully to avoid overwriting code.
+The code lives on GitHub at `git@github.com:PhyAMR/Neutrions.git`. Everyone commits to `main`.
 
-## 1. Environment & Workspace
-*If you are all using the same user account and the exact same folder (e.g., `/home/ubuntu/Grassi`):*
-- **Communication is key**: You must coordinate visually or verbally to ensure you aren't actively typing in the exact same file at the same time.
-- **VS Code Live Share**: If you are connecting from different machines via SSH, consider heavily utilizing VS Code Live Share to edit the same workspace collaboratively in real-time.
+Each of you works on your own VM, in your own copy of the repository (a *clone*). **GitHub is the only place where work is shared**: if you haven't pushed it, the others can't see it.
 
-*Ideally*, you should initiate a "bare" repo on the machine (`git init --bare /home/ubuntu/Grassi.git`) and each user can `git clone` that into their own separate directories. However, Assuming you are using one shared folder, follow the branching strategy below.
+## One-time setup
 
-## 2. Branching Strategy
-**Never work directly on the `main` branch.**
-When you start a new task, create a new branch using a prefix with your initials or the feature type:
+Do this on your VM. [CONNECT.md](CONNECT.md) explains how to log in.
+
+### 1. Tell git who you are
+
 ```bash
-# Ensure you are up to date and on main
-git checkout main
-
-# Create and switch to your new branch
-git checkout -b feature/ag-add-preprocessing
+git config --global user.name  "First Last"
+git config --global user.email "you@example.com"
+git config --global pull.rebase false
 ```
 
-## 3. Making Commits
-Save your progress into Git incrementally. Only commit code that runs!
+Without the first two lines your commits show up as "Your Name" or as `ubuntu`, and nobody can tell who wrote what. The last line makes `git pull` merge, which is the simplest behaviour.
+
+### 2. Connect to GitHub
+
+1. Create an SSH key on this machine if you don't have one: `ssh-keygen -t ed25519` (press Enter to accept the defaults).
+2. Print it with `cat ~/.ssh/id_ed25519.pub` and paste that line into GitHub → **Settings** → **SSH and GPG keys** → **New SSH key**.
+3. Ask the owner of the repository (`PhyAMR` on GitHub) to add you as a collaborator.
+4. Test it: `ssh -T git@github.com` should greet you by your GitHub username.
+
+### 3. Clone the repository
+
 ```bash
-# See what files you've modified
-git status
-
-# Stage the specific files you want to commit
-git add src/data_loader.py
-
-# Commit with a clear, descriptive message
-git commit -m "Add handling for missing values in data loader"
+cd ~
+git clone git@github.com:PhyAMR/Neutrions.git Grassi
+cd Grassi
 ```
 
-## 4. Merging Your Work
-Once your script or feature is working perfectly, it's time to integrate it back to `main`.
+### 4. Get the data
 
-1. **Switch to main**:
-   ```bash
-   git checkout main
-   ```
-2. **Merge your feature branch**:
-   ```bash
-   git merge feature/ag-add-preprocessing
-   ```
-3. **Delete your branch** (keep the workspace clean!):
-   ```bash
-   git branch -d feature/ag-add-preprocessing
-   ```
+`data/` is not in git because it is too large (about 800 MB), so you add it by hand. It goes **inside your clone**, with exactly this layout:
 
-## 5. Dealing with Changes and Conflicts
-If two people modified the *same file*, Git will trigger a **Merge Conflict**. 
+```text
+Grassi/
+├── data/
+│   ├── raw/
+│   │   ├── training/
+│   │   │   ├── events.parquet
+│   │   │   └── truth.parquet
+│   │   └── test/                (empty for now)
+│   └── processed/               (created by src/scripts/preprocessing.py; don't copy it)
+├── src/
+└── ...
+```
 
-1. When you run `git merge`, Git will warn you about the conflict.
-2. Open the conflicted file in VS Code.
-3. You will see markers separating the two versions of the code:
-   ```python
-   <<<<<<< HEAD
-   logger.info("This is the code currently on main")
-   =======
-   logger.info("This is the code from your feature branch")
-   >>>>>>> feature/ag-add-preprocessing
-   ```
-4. **Discuss with your teammate** on which version is correct, or manually combine them into the right logic.
-5. In VS Code, you can click the convenient "Accept Current Change", "Accept Incoming Change", or "Accept Both Changes" buttons above the conflict.
-6. Once the file looks exactly how it should, save it.
-7. Stage and complete the merge:
-   ```bash
-   git add <resolved_file.py>
-   git commit -m "Resolve merge conflict in <file>"
-   ```
+Create the folders:
 
-## 6. Pro-Tips for Shared Machines
-- **`git stash`**: If you need to switch branches but aren't ready to commit half-broken code, run `git stash`. You can retrieve it later with `git stash pop`.
-- **VS Code Source Control Tab**: Use the built-in UI on the left sidebar for visually reviewing changes, staging, committing, and handling merge conflicts safely.
+```bash
+mkdir -p data/raw/training data/raw/test
+```
+
+Then get `events.parquet` and `truth.parquet` from a teammate who has them and put them in `data/raw/training/`. If the files are on your laptop, copy them to your VM with the SSH config from [CONNECT.md](CONNECT.md) (run this on your laptop):
+
+```bash
+scp events.parquet truth.parquet cloud-vm:~/Grassi/data/raw/training/
+```
+
+## Every time you work
+
+```bash
+# 1. Get everyone else's work before you start
+git pull
+
+# 2. Work, and save snapshots as you go
+git status                     # what did I change?
+git add src/some_file.py       # choose the files to save
+git commit -m "Say in one line what changed"
+
+# 3. Before you upload, get anything new from the others
+git pull
+
+# 4. Upload
+git push
+```
+
+If `git push` says **rejected**, someone pushed while you were working. Run `git pull`, then `git push` again.
+
+## Rules
+
+- **Pull before you start and before you push.**
+- **Push often.** Small commits pushed every few hours give fewer and smaller conflicts than one big push at the end.
+- **Commit code that runs.** Everyone uses the same `main`, so if it's broken, it's broken for everyone.
+- **Add only the files you meant to change.** Avoid `git add .`, because it also picks up data, outputs and temporary files.
+- **Say when you're working on a shared file** (for example `src/scripts/preprocessing.py`), so two people don't edit the same lines.
+
+## Fixing a conflict
+
+When you and someone else changed the same lines, `git pull` can't choose between them and marks the file:
+
+```text
+<<<<<<< HEAD
+your version
+=======
+the version from GitHub
+>>>>>>> ...
+```
+
+1. Open the file. VS Code shows buttons above each conflict: **Accept Current** (yours), **Accept Incoming** (from GitHub) and **Accept Both**.
+2. Keep the correct code and make sure all the `<<<<<<<`, `=======` and `>>>>>>>` lines are gone. If you are not sure which version is right, ask the person who wrote the other one.
+3. Save the file, then:
+
+```bash
+git add path/to/the_file.py
+git commit -m "Resolve conflict in the_file.py"
+git push
+```
+
+## Common messages
+
+| Git says… | Do this |
+|---|---|
+| `Your local changes ... would be overwritten by merge` (on `git pull`) | Commit your changes first, then pull. Or put them aside: `git stash`, `git pull`, `git stash pop`. |
+| `rejected ... fetch first` (on `git push`) | `git pull`, then `git push` again. |
+| `CONFLICT (content): Merge conflict in ...` | See "Fixing a conflict" above. |
+
+## Cheat sheet
+
+| I want to… | Command |
+|---|---|
+| See what I changed | `git status`, then `git diff` |
+| See the history | `git log --oneline` |
+| Undo `git add` (keep my changes) | `git restore --staged path/to/file` |
+| Put my changes aside for a moment | `git stash`, and later `git stash pop` |
+| Throw away my changes to a file (**can't be undone**) | `git restore path/to/file` |
