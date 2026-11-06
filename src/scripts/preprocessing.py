@@ -51,6 +51,7 @@ PROCESSED_FILES = {
     "events_labels":          PROCESSED_DIR / "events_labels.parquet",
     "false_events_features":  PROCESSED_DIR / "false_events_features.parquet",
     "false_events_labels":    PROCESSED_DIR / "false_events_labels.parquet",
+    "parameters":    PROCESSED_DIR / "parameters.npz",
 }
 
 #: Raw column names assigned after concat of events + truth parquet files.
@@ -680,6 +681,44 @@ def _project_pairs_chunked(
     return total_rows
 
 
+def _compute_parameters(events_times: np.ndarray | pd.Series) -> dict[str, float | int]:
+    """This functioncomputes R and the total time  
+
+    Parameters
+    ----------
+    events_times : np.ndarray or pd.Series 
+        Array or pd.Series containing the time in nanoseconds (no sorting required)
+
+    Returns
+    -------
+    dict[str, int | float]: 
+        Dict containg the name and the values of the computed parameters: 
+        R_s [ns-1]: Rate of the events
+        time_total [ns]: Total time of the experiment (t_max - t_min)
+        N_total [# of events]: Counts all the events without knowing the type of event
+    Raises 
+    ------ 
+
+    ValueError
+        If N is < 2 or max == min 
+    """
+    N = len(events_times)
+    if N < 2:
+        raise ValueError(f"Need at least 2 events got {N=}", )
+
+    t_min = events_times.min() 
+    t_max = events_times.max()
+    if t_min < t_max:
+        time_total = t_max - t_min
+    else:
+        raise ValueError(f"{t_max=} and {t_min=}, negative or zero total time")
+
+    R_s = N/time_total
+
+    log.info(f"Parameters computed corretly: {R_s=}, {time_total=}, {N=}")
+
+    return {"N_total": N, "time_total": time_total, "R_s": R_s}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Main processing pipeline
 # ─────────────────────────────────────────────────────────────────────────────
@@ -704,6 +743,10 @@ def _process(raw_dir: Path) -> None:
     df_total[label_cols].to_parquet(PROCESSED_FILES["total_labels"], index=False)
     log.info("Saved %-45s  (%d rows, %d cols)",
              str(PROCESSED_FILES["total_labels"]), len(df_total), len(label_cols))
+    # Compute parameters and save them into processed files
+
+    params = _compute_parameters(df_total["time"])
+    np.savez(PROCESSED_FILES["parameters"], **params)
 
     # ── 4. Forward-pair construction (streams to a tmp parquet) ──────────────
     tmp_path = _find_forward_pairs(df_total, threshold=PAIR_THRESHOLD_NS)
