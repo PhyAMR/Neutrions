@@ -56,10 +56,8 @@ PROCESSED_FILES = {
 
 #: Raw column names assigned after concat of events + truth parquet files.
 #: The 4 engineered coordinates are appended separately in _load_raw.
-COLUMN_NAMES = [
+EVENT_COLS_TOTAL = [
     "time", "energy", "x", "y", "z",
-    "label", "pair_id", "label_name",
-    "r", "r2", "phi", "distance",
 ]
 
 LABEL_COLS_TOTAL  = ["pair_id", "label", "label_name"]
@@ -102,12 +100,13 @@ EVENTS_DELTA_COLS = [f"d{p}" for p in _INDIV_BASE] + ["dR"]
 # the event
 EVENTS_LABEL_COLS = ["pair_id_1", "pair_id_2", "label_1", "label_2", "label_name_1", "label_name_2", "is_ibd", "false_ibd", "pair_type"]
 
-EVENT_COUNTS_COLS = ["k_window", "dt_shifted", "n_before", "n_on", "n_gap",
+EVENTS_COUNTS_COLS = ["k_window", "dt_shifted", "n_before", "n_on", "n_gap",
                      "n_in_window", "is_dc"]
 
+EVENTS_FEATURE_COLS = EVENTS_INDIV_COLS + EVENTS_DELTA_COLS + EVENTS_COUNTS_COLS
+
 # All columns that must be non-null to keep a paired row
-REQUIRED_EVENT_COLS = EVENTS_INDIV_COLS + EVENTS_DELTA_COLS + \
-    EVENTS_LABEL_COLS + EVENT_COUNTS_COLS
+REQUIRED_EVENT_COLS =   EVENTS_LABEL_COLS + EVENTS_FEATURE_COLS 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging
@@ -160,28 +159,51 @@ def _processed_outputs_exist() -> bool:
 
 
 def _validate_raw_inputs(raw_dir: Path) -> None:
-    """Raise FileNotFoundError if any raw input file is missing."""
+    """Function to check the raw data before using it
+
+    Raises
+    ------ 
+    FileNotFoundError if files are missing 
+    ValueError if columns are missing or their name mismatch
+    
+    """
+    required = {"events": EVENT_COLS_TOTAL, "truth": LABEL_COLS_TOTAL}
+
     for name, path in RAW_FILES.items():
         full = raw_dir / path.name
         if not full.exists():
             raise FileNotFoundError(
                 f"Raw input not found: {full}\n"
-                "Ensure 'data/raw/training/' contains events.parquet and truth.parquet."
+                f"Ensure {raw_dir} contains {path.name}"
             )
+        missing = [x for x in required[name] if x not in pq.read_schema(full).names]
+        found = [x for x in pq.read_schema(full).names if x not in required[name]]
+        if missing: 
+            raise ValueError("The following columns mismatch with the expected "
+                f"structure of {full}: found: {found} \n missing: {missing}")
+       
 
 
 def _load_raw(raw_dir: Path) -> pd.DataFrame:
-    """Load, merge, and engineer base features from raw parquet files."""
+    """Load, merge, and engineer base features from raw parquet files.
+
+
+    Returns
+    ------- 
+    df: pd.DataFrame
+        A combinned DataFrame with the events and truth values for the training
+    Raises
+    ------ 
+    FileNotFoundError if files are missing 
+    ValueError if columns are missing or their name mismatch
+    """
+    
     log.info("Loading raw data from %s …", raw_dir)
 
     events = pq.read_table(raw_dir / "events.parquet").to_pandas()
     truth  = pq.read_table(raw_dir / "truth.parquet").to_pandas()
 
     df = pd.concat([events, truth], axis=1)
-
-    # Rename only the 8 raw columns (events: 5, truth: 3) that exist at this point
-    raw_col_names = [c for c in COLUMN_NAMES if c not in ("r", "r2", "phi", "distance")]
-    df.columns = raw_col_names
 
     # Polar / spherical coordinate features (appended as new columns)
     df["r"]        = np.hypot(df["x"], df["y"])
@@ -614,10 +636,9 @@ def _project_pairs_chunked(
 
     Output schema
     -------------
-    features : EVENTS_INDIV_COLS + EVENTS_DELTA_COLS + EVENT_COUNTS_COLS
-               t_1…D_1, t_2…D_2, dt, dE, dx, dy, dz, dr, dr2, dphi, dD, dR
+    features : EVENTS_FEATURE_COLS
+
     labels   : EVENTS_LABEL_COLS
-               pair_id, label_name_1, label_name_2
 
     Parameters
     ----------
@@ -647,7 +668,7 @@ def _project_pairs_chunked(
             continue
 
         feat_chunk  = pa.Table.from_pandas(
-            chunk[EVENTS_INDIV_COLS + EVENTS_DELTA_COLS + EVENT_COUNTS_COLS], preserve_index=False
+            chunk[EVENTS_FEATURE_COLS], preserve_index=False
         )
         label_chunk = pa.Table.from_pandas(
             chunk[EVENTS_LABEL_COLS], preserve_index=False
@@ -672,8 +693,7 @@ def _project_pairs_chunked(
     else:
         # No valid rows at all — write empty files so downstream never hits a
         # missing-file error.
-        all_feat_cols  = EVENTS_INDIV_COLS + EVENTS_DELTA_COLS + EVENT_COUNTS_COLS
-        empty_feat  = pa.table({c: pa.array([], type=(pa.int64() if c in EVENT_COUNTS_COLS else pa.float64())) for c in all_feat_cols })
+        empty_feat  = pa.table({c: pa.array([], type=(pa.int64() if c in EVENTS_COUNTS_COLS else pa.float64())) for c in EVENTS_FEATURE_COLS })
         empty_label = pa.table({c: pa.array([], type=(pa.string() if "label_name" in c or c == "pair_type" else pa.int64()) )  for c in EVENTS_LABEL_COLS})
         pq.write_table(empty_feat,  feat_path)
         pq.write_table(empty_label, label_path)
@@ -747,6 +767,9 @@ def _process(raw_dir: Path) -> None:
 
     params = _compute_parameters(df_total["time"])
     np.savez(PROCESSED_FILES["parameters"], **params)
+    log.info("Saved %-45s  %s",
+             str(PROCESSED_FILES["parameters"]), params)
+
 
     # ── 4. Forward-pair construction (streams to a tmp parquet) ──────────────
     tmp_path = _find_forward_pairs(df_total, threshold=PAIR_THRESHOLD_NS)
