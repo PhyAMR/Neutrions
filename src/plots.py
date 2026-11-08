@@ -184,7 +184,7 @@ def _output_path(row_col: str, x_col: str, y_col: str) -> Path:
         / f"joint_threshold_{x_col}_{y_col}.pdf"
     )
 
-
+# Function to split
 def _build_row_conditions(
     row_col: Optional[str],
     threshold_row: Optional[float],
