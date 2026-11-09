@@ -59,6 +59,8 @@ import pyarrow.parquet as pq
 # Logging
 # ─────────────────────────────────────────────────────────────────────────────
 
+""" Note: "_" before the function name indicates that this is an internal helper,
+ made to use in this module only. This way we can adress project root using ".parent.parent"""
 def _setup_logging(script_path: Path = Path(__file__)) -> logging.Logger:
     # ".resolve()" makes the path absolute; ."parent.parent" points to the project root
     log_dir  = script_path.resolve().parent.parent / "logs" 
@@ -139,11 +141,11 @@ def _ensure_processed() -> None:
             len(missing),
         )
         preprocess_module = importlib.import_module("src.scripts.preprocessing")
-        preprocess_module.run()
+        preprocess_module.run() # Can raise an error if the preprocessing fails
 
         still_missing = [p for p in _PROCESSED_FILES.values() if not p.exists()]
         if still_missing:
-            raise RuntimeError(
+            raise RuntimeError( # Only if .run() worked but didn't produce all expected outputs
                 "Preprocessing completed without creating all data-loader outputs: "
                 + ", ".join(str(path) for path in still_missing)
             )
@@ -153,9 +155,10 @@ def _read_parquet(
     path: Path,
     columns: Optional[list[str]] = None,
 ) -> pd.DataFrame:
+    """ If "columns" is None, ``pq.read_table`` will read all columns 
+    """
     log.info("Reading %s%s", path, f"  cols={columns}" if columns else "")
-    return pq.read_table(path, columns=columns).to_pandas()
-
+    return pq.read_table(path, columns=columns).to_pandas() 
 
 def _apply_sample(
     df: pd.DataFrame,
@@ -165,17 +168,19 @@ def _apply_sample(
     if sample is not None and sample < len(df):
         df = df.sample(n=sample, random_state=random_state).reset_index(drop=True)
         log.info("  sampled → %d rows", len(df))
-    return df
+    return df  # Sampled rows with a reset index (0,1,...), or the unchanged DataFrame if sampling was skipped.
 
 
-def _apply_label_filter(
+def _apply_label_filter( # To keep only rows where the value in label_col matches label
     df: pd.DataFrame,
     label: Optional[str],
     label_col: str = "label_name",
 ) -> pd.DataFrame:
+    """Filter the DataFrame to only include rows where the value in label_col matches label.
+    """
     if label is not None:
         before = len(df)
-        df = df[df[label_col] == label].reset_index(drop=True)
+        df = df[df[label_col] == label].reset_index(drop=True) 
         log.info(
             "  filtered to %s=%r → %d / %d rows",
             label_col, label, len(df), before,
@@ -189,7 +194,7 @@ def _split_columns(
     """Split a user-supplied column list into (feat_cols, label_cols).
 
     Returns ``None`` for a side when no columns from that file were requested,
-    which tells ``pq.read_table`` to load all columns from that file.
+    which tells ``read_parquet`` to load all columns from that file.
     If ``columns`` is ``None``, both sides are ``None`` (load everything).
     """
     if columns is None:
