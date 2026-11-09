@@ -31,6 +31,7 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+import yaml
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Configuration
@@ -62,7 +63,8 @@ EVENT_COLS_TOTAL = [
     "time", "energy", "x", "y", "z",
 ]
 
-LABEL_COLS_TOTAL  = ["pair_id", "label", "label_name"]
+RAW_LABEL_COLS    = ["pair_id", "label", "label_name"]
+LABEL_COLS_TOTAL  = RAW_LABEL_COLS + ["event_id", "time_block_id"]
 PAIR_THRESHOLD_NS = 10 * 200_000   # 2 ms expressed in nanoseconds
 DETECTOR_RADIUS_M = 1.5 # Radius of the instrument in meters 
 DETECTOR_HALF_HEIGHT_M = 1.55 #height of the instrument in meters 
@@ -102,7 +104,7 @@ EVENTS_DELTA_COLS = [f"d{p}" for p in _INDIV_BASE] + ["dR"]
 
 # Label columns kept in the output: We store all the labels that indicate the nature of
 # the event
-EVENTS_LABEL_COLS = ["event_id_1", "event_id_2", "pair_id_1", "pair_id_2", "label_1", "label_2", "label_name_1", "label_name_2", "is_ibd", "false_ibd", "pair_type"]
+EVENTS_LABEL_COLS = ["event_id_1", "event_id_2", "time_block_id_1", "time_block_id_2", "pair_id_1", "pair_id_2", "label_1", "label_2", "label_name_1", "label_name_2", "is_ibd", "false_ibd", "pair_type"]
 
 # Temporal-window context and event-count metadata saved for each pair.
 # These columns do not define the target label or filter rows; they are
@@ -182,7 +184,7 @@ def _validate_raw_inputs(raw_dir: Path) -> None:
     ValueError if columns are missing or their name mismatch
     
     """
-    required = {"events": EVENT_COLS_TOTAL, "truth": LABEL_COLS_TOTAL}
+    required = {"events": EVENT_COLS_TOTAL, "truth": RAW_LABEL_COLS}
 
     for name, path in RAW_FILES.items():
         full = raw_dir / path.name
@@ -199,7 +201,10 @@ def _validate_raw_inputs(raw_dir: Path) -> None:
        
 
 
-def _load_raw(raw_dir: Path) -> pd.DataFrame:
+def _load_raw(
+    raw_dir: Path,
+    block_duration_ns: int,
+) -> pd.DataFrame:
     """Load, merge, and engineer base features from raw parquet files.
 
 
@@ -219,7 +224,7 @@ def _load_raw(raw_dir: Path) -> pd.DataFrame:
     truth  = pq.read_table(raw_dir / "truth.parquet").to_pandas()
 
     df = pd.concat([events, truth], axis=1)
-    df['event_id'] = df.index
+    df["event_id"] = np.arange(len(df), dtype=np.int64)
 
     # Polar / spherical coordinate features (appended as new columns)
     df["r"]        = np.hypot(df["x"], df["y"])
@@ -228,6 +233,12 @@ def _load_raw(raw_dir: Path) -> pd.DataFrame:
     df["distance"] = np.sqrt(df["x"] ** 2 + df["y"] ** 2 + df["z"] ** 2)
 
     df = df.sort_values(["time", "label"], kind="stable").reset_index(drop=True)
+    if block_duration_ns <= 0:
+        raise ValueError(f"block_duration_ns must be positive, got {block_duration_ns}.")
+    time_origin = int(df["time"].min())
+    df["time_block_id"] = (
+        (df["time"] - time_origin) // block_duration_ns
+    ).astype(np.int64)
 
     log.info("Raw data loaded: %d rows, %d columns.", *df.shape)
     return df
@@ -279,7 +290,7 @@ def _find_forward_pairs(
     n  = len(df)
 
     numeric_cols  = df.select_dtypes(include=[np.number]).columns.tolist()
-    cols_to_delta = [c for c in numeric_cols if c not in ["time", "label", "pair_id", "event_id"]]
+    cols_to_delta = [c for c in numeric_cols if c not in ["time", "label", "pair_id", "event_id", "time_block_id"]]
     all_cols      = df.columns.tolist()
 
     # ── Extract every column as a numpy array up front ───────────────────────
@@ -429,7 +440,7 @@ def _find_false_pairs(
     n  = len(df)
 
     numeric_cols  = df.select_dtypes(include=[np.number]).columns.tolist()
-    cols_to_delta = [c for c in numeric_cols if c not in ["time","label","pair_id", "event_id"]]
+    cols_to_delta = [c for c in numeric_cols if c not in ["time","label","pair_id", "event_id", "time_block_id"]]
     all_cols      = df.columns.tolist()
 
     arrays: dict[str, np.ndarray] = {c: df[c].to_numpy() for c in all_cols}
@@ -753,19 +764,24 @@ def _compute_parameters(events_times: np.ndarray | pd.Series) -> dict[str, float
 
     log.info(f"Parameters computed corretly: {R_s=}, {time_total=}, {N=}")
 
-    return {"N_total": N, "time_total": time_total, "R_s": R_s}
+    return {
+        "N_total": N,
+        "time_total": time_total,
+        "R_s": R_s,
+        "time_origin": int(t_min),
+    }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Main processing pipeline
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _process(raw_dir: Path) -> None:
+def _process(raw_dir: Path, block_duration_ns: int) -> None:
     """Full preprocessing pipeline: load → engineer → pair → save."""
     _validate_raw_inputs(raw_dir)
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
     # ── 1. Base feature engineering ──────────────────────────────────────────
-    df_total = _load_raw(raw_dir)
+    df_total = _load_raw(raw_dir, block_duration_ns=block_duration_ns)
 
 
     label_cols   = LABEL_COLS_TOTAL
@@ -832,6 +848,7 @@ def run(
     *,
     raw_dir: Optional[str | Path] = None,
     force:   bool = False,
+    config_path: str | Path = "training.yaml",
 ) -> None:
     """
     Entry point for both standalone and programmatic use.
@@ -840,6 +857,7 @@ def run(
     ----------
     raw_dir : Override the default raw-data directory (RAW_DIR).
     force   : When True, regenerate outputs even if they already exist.
+    config_path : YAML file containing ``data.block_duration_ns``.
     """
     resolved_raw = Path(raw_dir) if raw_dir else RAW_DIR
 
@@ -854,7 +872,11 @@ def run(
     if force:
         log.info("Force flag set — regenerating processed data.")
 
-    _process(resolved_raw)
+    with open(config_path, "r") as config_file:
+        config = yaml.safe_load(config_file)
+    block_duration_ns = int(config["data"]["block_duration_ns"])
+
+    _process(resolved_raw, block_duration_ns=block_duration_ns)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
