@@ -1,0 +1,27 @@
+
+
+raw_input:
+ dir: data/raw/training
+ events: events.parquet
+ truth: truth.parquet
+
+processed_output:
+ dir: data/processed 
+ total_features: total_features.parquet
+ total_labels: total_labels.parquet
+ events_features: events_features.parquet
+ events_labels: events_labels.parquet
+ false_events_features: false_events_features.parquet
+ false_events_labels: false_events_labels.parquet
+ parameters: parameters.npz 
+
+pairing:
+ PAIR_THRESHOLD_NS: 2_000_000
+ n_off: 10
+
+detector:
+ RADIUS_M: 1.5
+ HALF_HEIGHT_M: 1.55
+
+performance:
+ FLUSH_EVERY: 500_000 
