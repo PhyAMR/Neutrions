@@ -6,17 +6,17 @@ Centralised data-loading layer for the Grassi analysis pipeline.
 All public functions return plain pandas DataFrames or generators of them.
 No processing or side-effects are performed on import.
 
-If processed files are missing, every loader calls ``preprocess.run()``
+If processed files are missing, every loader calls ``preprocessing.run()``
 automatically before loading.
 
 Loaders
 -------
 load_total(...)              → DataFrame   — raw per-event dataset
-load_events(...)             → DataFrame   — signal pair dataset (in-window)
-load_false_events(...)       → DataFrame   — raises MemoryWarning; use iterator
-stream_false_events(...)     → Generator   — one row-group per iteration
-stream_events(...)           → Generator   — one row-group per iteration
-load_raw(...)                → (DataFrame, DataFrame)
+load_events(...)             → DataFrame   — signal pair dataset (in time window)
+load_false_events(...)       → DataFrame   — ResourceWarning (large dataset); use streaming
+stream_false_events(...)     → Generator   — group of rows per iteration (reduces memory use)
+stream_events(...)           → Generator   — group of rows per iteration (reduces memory use)
+load_raw(...)                → (DataFrame, DataFrame) of (events, truth)
 
 Feature schema (events / false_events)
 ---------------------------------------
@@ -59,22 +59,23 @@ import pyarrow.parquet as pq
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _setup_logging(script_path: Path = Path(__file__)) -> logging.Logger:
-    log_dir  = script_path.resolve().parent.parent / "logs"
+    # ".resolve()" makes the path absolute; ."parent.parent" points to the project root
+    log_dir  = script_path.resolve().parent.parent / "logs" 
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / f"{script_path.stem}.log"
+    log_file = log_dir / f"{script_path.stem}.log" # ".stem" gives the script name without its extension
     fmt      = logging.Formatter(
         fmt="%(asctime)s  %(name)-20s  %(levelname)-8s  %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-    logger = logging.getLogger(script_path.stem)
-    logger.setLevel(logging.INFO)
-    logger.handlers.clear()
-    fh = logging.FileHandler(log_file, mode="w", encoding="utf-8")
+    logger = logging.getLogger(script_path.stem)  # log name
+    logger.setLevel(logging.INFO)  # Set the logging level to INFO
+    logger.handlers.clear()  # Remove old output destinations to prevent duplicate messages.
+    fh = logging.FileHandler(log_file, mode="w", encoding="utf-8") # Overwrite the log file
     fh.setFormatter(fmt)
-    ch = logging.StreamHandler()
+    ch = logging.StreamHandler() # To show log messages in the console
     ch.setFormatter(fmt)
-    logger.addHandler(fh)
-    logger.addHandler(ch)
+    logger.addHandler(fh) # Send log messages to the file
+    logger.addHandler(ch) # Send log messages to the console
     return logger
 
 
@@ -134,7 +135,7 @@ def _ensure_processed() -> None:
             "%d processed file(s) missing — running preprocess.run() …",
             len(missing),
         )
-        from preprocess import run as _preprocess_run
+        from preprocessing import run as _preprocess_run
         _preprocess_run()
 
 
