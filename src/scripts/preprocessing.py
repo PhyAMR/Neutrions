@@ -102,7 +102,7 @@ EVENTS_DELTA_COLS = [f"d{p}" for p in _INDIV_BASE] + ["dR"]
 
 # Label columns kept in the output: We store all the labels that indicate the nature of
 # the event
-EVENTS_LABEL_COLS = ["pair_id_1", "pair_id_2", "label_1", "label_2", "label_name_1", "label_name_2", "is_ibd", "false_ibd", "pair_type"]
+EVENTS_LABEL_COLS = ["event_id_1", "event_id_2", "pair_id_1", "pair_id_2", "label_1", "label_2", "label_name_1", "label_name_2", "is_ibd", "false_ibd", "pair_type"]
 
 # Temporal-window context and event-count metadata saved for each pair.
 # These columns do not define the target label or filter rows; they are
@@ -219,6 +219,7 @@ def _load_raw(raw_dir: Path) -> pd.DataFrame:
     truth  = pq.read_table(raw_dir / "truth.parquet").to_pandas()
 
     df = pd.concat([events, truth], axis=1)
+    df['event_id'] = df.index
 
     # Polar / spherical coordinate features (appended as new columns)
     df["r"]        = np.hypot(df["x"], df["y"])
@@ -226,7 +227,7 @@ def _load_raw(raw_dir: Path) -> pd.DataFrame:
     df["phi"]      = np.arctan2(df["y"], df["x"]) % (2 * np.pi)
     df["distance"] = np.sqrt(df["x"] ** 2 + df["y"] ** 2 + df["z"] ** 2)
 
-    df = df.sort_values(["pair_id", "time"]).reset_index(drop=True)
+    df = df.sort_values(["time", "label"], kind="stable").reset_index(drop=True)
 
     log.info("Raw data loaded: %d rows, %d columns.", *df.shape)
     return df
@@ -278,7 +279,7 @@ def _find_forward_pairs(
     n  = len(df)
 
     numeric_cols  = df.select_dtypes(include=[np.number]).columns.tolist()
-    cols_to_delta = [c for c in numeric_cols if c not in ["time", "label", "pair_id"]]
+    cols_to_delta = [c for c in numeric_cols if c not in ["time", "label", "pair_id", "event_id"]]
     all_cols      = df.columns.tolist()
 
     # ── Extract every column as a numpy array up front ───────────────────────
@@ -428,7 +429,7 @@ def _find_false_pairs(
     n  = len(df)
 
     numeric_cols  = df.select_dtypes(include=[np.number]).columns.tolist()
-    cols_to_delta = [c for c in numeric_cols if c not in ["time","label","pair_id"]]
+    cols_to_delta = [c for c in numeric_cols if c not in ["time","label","pair_id", "event_id"]]
     all_cols      = df.columns.tolist()
 
     arrays: dict[str, np.ndarray] = {c: df[c].to_numpy() for c in all_cols}
