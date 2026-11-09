@@ -8,7 +8,12 @@
 data:
   features_path: "data/processed/events_features.parquet"
   labels_path:   "data/processed/events_labels.parquet"
+  false_features_path: "data/processed/false_events_features.parquet"
+  false_labels_path:   "data/processed/false_events_labels.parquet"
   parameters_path: "data/processed/parameters.npz"
+  # Off-window pairs add negative examples to model fitting only. Validation,
+  # calibration, threshold selection, and test stay on the on-time population.
+  include_false_events: true
 
   # Column in labels file that defines the binary target.
   # 1 -> is_ibd, 0 -> not_ibd
@@ -33,7 +38,7 @@ data:
 # ── Features ──────────────────────────────────────────────────────────────────
 features:
   # Explicit ordered feature list fed to the model.
-  # Order must match MLPModel.FEATURE_NAMES / LGBMModel (N_FEATURES = 10).
+  # This ordered list defines the model input columns and width.
   # Individual anchor (prompt)
   include:
     - E_1
@@ -44,7 +49,7 @@ features:
     - z_2 
     - r2_2 
     # Delta features
-    - dt
+    - dt_shifted
     # Derived spatial separation
     - dR 
     - dwall_1

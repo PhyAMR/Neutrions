@@ -9,11 +9,13 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from trainer import _chronological_time_block_split, _load_data
+from models.base_model import BaseModel
+from trainer import _chronological_time_block_split, _load_data, run
 
 
 class GroupedSplitTests(unittest.TestCase):
@@ -131,6 +133,126 @@ class GroupedSplitTests(unittest.TestCase):
             80 not in X_split[:, 0].astype(int)
             for X_split, _ in splits.values()
         ))
+
+    def test_training_only_pairs_are_excluded_from_evaluation_splits(self) -> None:
+        event_count = len(self.labels_df)
+        X_events = np.column_stack((
+            np.arange(event_count),
+            np.zeros(event_count, dtype=int),
+        ))
+        X_false = np.column_stack((
+            np.arange(event_count),
+            np.ones(event_count, dtype=int),
+        ))
+        X = np.concatenate((X_events, X_false))
+        y = np.concatenate((
+            self.labels_df["is_ibd"].to_numpy(),
+            np.zeros(event_count, dtype=int),
+        ))
+        metadata = {
+            column: np.concatenate((
+                self.labels_df[column].to_numpy(),
+                self.labels_df[column].to_numpy(),
+            ))
+            for column in (
+                "event_id_1", "event_id_2", "time_block_id_1", "time_block_id_2"
+            )
+        }
+        metadata["t_1"] = np.concatenate((
+            self.features_df["t_1"].to_numpy(),
+            self.features_df["t_1"].to_numpy(),
+        ))
+        training_only_mask = np.concatenate((
+            np.zeros(event_count, dtype=bool),
+            np.ones(event_count, dtype=bool),
+        ))
+
+        splits = _chronological_time_block_split(
+            X,
+            y,
+            metadata,
+            self.config,
+            time_origin=0,
+            training_only_mask=training_only_mask,
+        )
+
+        self.assertIn(1, splits["train"][0][:, 1])
+        for name in ("val", "calibration", "test"):
+            self.assertTrue(np.all(splits[name][0][:, 1] == 0))
+            self.assertEqual(set(np.unique(splits[name][1])), {0, 1})
+
+    def test_pipeline_uses_false_pairs_only_for_training(self) -> None:
+        class RecordingModel(BaseModel):
+            def fit(self, X_train, y_train, X_val, y_val):
+                self.training_features = X_train.copy()
+                self.validation_features = X_val.copy()
+                return self
+
+            def predict_proba(self, X):
+                return np.where(X[:, 0] % 2 == 1, 0.8, 0.2)
+
+            def save(self, path):
+                raise AssertionError("Model saving is disabled in this test.")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            data_dir = temp_path / "data"
+            data_dir.mkdir()
+            paths = {
+                "features_path": data_dir / "events_features.parquet",
+                "labels_path": data_dir / "events_labels.parquet",
+                "false_features_path": data_dir / "false_events_features.parquet",
+                "false_labels_path": data_dir / "false_events_labels.parquet",
+            }
+            false_features = self.features_df.copy()
+            false_features["E_1"] = 99.0
+            false_labels = self.labels_df.copy()
+            false_labels["is_ibd"] = 0
+
+            for key, frame in (
+                ("features_path", self.features_df),
+                ("labels_path", self.labels_df),
+                ("false_features_path", false_features),
+                ("false_labels_path", false_labels),
+            ):
+                pq.write_table(
+                    pa.Table.from_pandas(frame, preserve_index=False),
+                    paths[key],
+                )
+
+            parameters_path = data_dir / "parameters.npz"
+            np.savez(parameters_path, time_origin=0)
+            config = {
+                **self.config,
+                "data": {
+                    **self.config["data"],
+                    **{key: str(path) for key, path in paths.items()},
+                    "parameters_path": str(parameters_path),
+                    "include_false_events": True,
+                    "random_seed": 42,
+                },
+                "calibration": {
+                    "method": "platt",
+                    "min_isotonic_samples": 1_000,
+                },
+                "threshold": {
+                    "strategy": "f1",
+                    "n_steps": 20,
+                },
+                "outputs": {
+                    "root": str(temp_path / "outputs"),
+                    "save_model": False,
+                    "save_metrics": False,
+                    "save_study": False,
+                },
+            }
+            config_path = temp_path / "training.yaml"
+            config_path.write_text(yaml.safe_dump(config))
+
+            result = run(RecordingModel, config_path=config_path, skip_hpo=True)
+
+        self.assertIn(99.0, result["model"].training_features[:, 0])
+        self.assertNotIn(99.0, result["model"].validation_features[:, 0])
 
 
 if __name__ == "__main__":

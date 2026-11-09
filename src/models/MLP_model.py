@@ -5,13 +5,13 @@ Multi-Layer Perceptron for binary IBD / radio classification.
 
 Input
 -----
-9 scalar tabular features per paired event:
-    delta_t, delta_energy, delta_x, delta_y, delta_z,
-    delta_r, delta_r2, delta_phi, delta_distance
+The input width is inferred from the configured feature matrix at the first
+fit, allowing the trainer's selected feature list to define the model input.
 
 Architecture
 ------------
-Input(9) → [Dense → BN → Activation → Dropout] × n_layers → Dense(1, sigmoid)
+Input(n_features) → [Dense → BN → Activation → Dropout] × n_layers
+                  → Dense(1, sigmoid)
 
 The number of layers, units per layer, activation, dropout rate, and
 learning rate are all exposed to Optuna via ``suggest_params``.
@@ -95,11 +95,11 @@ class MLPModel(BaseModel):
     def __init__(self, params: dict[str, Any] | None = None) -> None:
         super().__init__(params or {})
         self._keras_model: tf.keras.Model | None = None
-        self._build()
+        self._input_features: int | None = None
 
     # ── Architecture ──────────────────────────────────────────────────────────
 
-    def _build(self) -> None:
+    def _build(self, input_features: int) -> None:
         hidden_units = self.params.get("hidden_units", [256, 128, 64])
         activation   = self.params.get("activation",   "relu")
         dropout_rate = self.params.get("dropout_rate",  0.3)
@@ -108,7 +108,7 @@ class MLPModel(BaseModel):
         lr           = self.params.get("learning_rate",  1e-3)
         reg          = regularizers.l2(l2) if l2 > 0 else None
 
-        inp = layers.Input(shape=(N_FEATURES,), name="input")
+        inp = layers.Input(shape=(input_features,), name="input")
         x   = inp
 
         for i, units in enumerate(hidden_units):
@@ -147,13 +147,19 @@ class MLPModel(BaseModel):
 
         Parameters
         ----------
-        X_train, y_train : Training features (n, 9) and binary labels.
+        X_train, y_train : Training feature matrix and binary labels.
         X_val,   y_val   : Validation features and labels for early stopping.
 
         Returns
         -------
         self
         """
+        if X_train.ndim != 2 or X_train.shape[1] == 0:
+            raise ValueError(f"Expected a non-empty 2-D training matrix, got {X_train.shape}.")
+        if self._keras_model is None:
+            input_features = X_train.shape[1]
+            self._input_features = input_features
+            self._build(input_features)
         self._validate_input(X_train)
         self._validate_input(X_val)
 
@@ -188,11 +194,15 @@ class MLPModel(BaseModel):
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
         """Return 1-D array of positive-class probabilities."""
+        if self._keras_model is None:
+            raise RuntimeError("MLPModel must be fitted before calling predict_proba().")
         self._validate_input(X)
         return self._keras_model.predict(X, verbose=0).ravel()
 
     def save(self, path: Path) -> None:
         """Save the full Keras model to *path*."""
+        if self._keras_model is None:
+            raise RuntimeError("MLPModel must be fitted before it can be saved.")
         path = Path(path)
         path.mkdir(parents=True, exist_ok=True)
         self._keras_model.save(path / "mlp_model.keras")
@@ -204,6 +214,7 @@ class MLPModel(BaseModel):
         obj  = cls.__new__(cls)
         obj.params       = {}
         obj._keras_model = tf.keras.models.load_model(path / "mlp_model.keras")
+        obj._input_features = int(obj._keras_model.input_shape[-1])
         return obj
 
     # ── Optuna search space ───────────────────────────────────────────────────
@@ -244,11 +255,13 @@ class MLPModel(BaseModel):
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
-    @staticmethod
-    def _validate_input(X: np.ndarray) -> None:
-        """Raise if X does not have the expected number of features."""
-        if X.ndim != 2 or X.shape[1] != N_FEATURES:
+    def _validate_input(self, X: np.ndarray) -> None:
+        """Raise if X does not match the model's fitted input width."""
+        if X.ndim != 2 or (
+            self._input_features is not None and X.shape[1] != self._input_features
+        ):
+            expected = self._input_features or N_FEATURES
             raise ValueError(
-                f"MLPModel expects input of shape (n, {N_FEATURES}) — {N_FEATURES} features. "
-                f"Got {X.shape}. Feature order: {FEATURE_NAMES}"
+                f"MLPModel expects input of shape (n, {expected}) — "
+                f"{expected} features. Got {X.shape}."
             )
