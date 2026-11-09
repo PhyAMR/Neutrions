@@ -122,11 +122,8 @@ _LABEL_COLS: frozenset[str] = frozenset([
     "is_ibd", "false_ibd", "pair_type",
 ])
 
-# Approximate per-row size for a 28-feature + 3-label paired DataFrame.
-# Used to warn when load_false_events() would exceed a sensible memory cap.
-_BYTES_PER_ROW_PAIRS = (28 + 3) * 8   # 31 cols × 8 bytes ≈ 248 bytes / row
-_WARN_THRESHOLD_GB   = 2.0
-
+# Estimated size limit for loading all false events at once.
+_WARN_THRESHOLD_GB   = 2.0  
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Internal helpers
