@@ -68,30 +68,31 @@ A thin wrapper around `predict_proba` that applies a threshold to produce hard b
 
 ## MLPModel (`models/mlp_model.py`)
 
-A fully-connected multi-layer perceptron for binary IBD / radio classification on 9 tabular delta features.
+A fully-connected multi-layer perceptron for binary IBD / radio classification. Its input width and column order come from `features.include` in `training.yaml`; the current configuration uses these 10 features:
 
 ### Input features
 
 | Column | Physical meaning |
 |---|---|
-| `delta_t` | Time difference between anchor and partner event |
-| `delta_energy` | Energy difference |
-| `delta_x` | Displacement along x |
-| `delta_y` | Displacement along y |
-| `delta_z` | Displacement along z |
-| `delta_r` | Difference in transverse radius $r = \sqrt{x^2 + y^2}$ |
-| `delta_r2` | Difference in $r^2$ |
-| `delta_phi` | Difference in azimuthal angle $\phi = \arctan2(y, x)$ |
-| `delta_distance` | Difference in 3D distance $D = \sqrt{x^2 + y^2 + z^2}$ |
+| `E_1` | Anchor (prompt) energy |
+| `z_1` | Anchor vertical position |
+| `r2_1` | Anchor squared transverse radius |
+| `E_2` | Partner (delayed) energy |
+| `z_2` | Partner vertical position |
+| `r2_2` | Partner squared transverse radius |
+| `dt_shifted` | Time separation shifted into the coincidence-window range |
+| `dR` | 3D spatial separation |
+| `dwall_1` | Anchor distance to the nearest detector wall |
+| `dwall_2` | Partner distance to the nearest detector wall |
 
-All features are differences between the anchor event (subscript 1) and the partner event (subscript 2), computed during preprocessing. The input to the model is a flat vector $\mathbf{x} \in \mathbb{R}^9$.
+The model builds its input layer on the first `fit()` call using the feature matrix width. The ordered feature selection remains the trainer's responsibility.
 
 ### Architecture
 
 The network is a feed-forward stack of identical blocks followed by a sigmoid output:
 
 ```
-Input(9)
+Input(n_features)
   └── [Dense(hᵢ) → BatchNorm → Activation → Dropout(p)] × L
         └── Dense(1, sigmoid)
 ```
@@ -107,7 +108,7 @@ where $L$ is the number of hidden layers, $h_i$ is the number of units in layer 
 | Dense 2 | 64 | BN → ReLU → Dropout(0.3) |
 | Output | 1 | sigmoid |
 
-Total parameters (default): **45,569**
+The parameter count depends on `n_features` and the selected hidden-layer widths.
 
 #### Forward pass
 
