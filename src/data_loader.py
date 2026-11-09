@@ -6,17 +6,17 @@ Centralised data-loading layer for the Grassi analysis pipeline.
 All public functions return plain pandas DataFrames or generators of them.
 No processing or side-effects are performed on import.
 
-If processed files are missing, every loader calls ``preprocess.run()``
+If processed files are missing, every loader calls ``preprocessing.run()``
 automatically before loading.
 
 Loaders
 -------
 load_total(...)              → DataFrame   — raw per-event dataset
-load_events(...)             → DataFrame   — signal pair dataset (in-window)
-load_false_events(...)       → DataFrame   — raises MemoryWarning; use iterator
-stream_false_events(...)     → Generator   — one row-group per iteration
-stream_events(...)           → Generator   — one row-group per iteration
-load_raw(...)                → (DataFrame, DataFrame)
+load_events(...)             → DataFrame   — signal pair dataset (in time window)
+load_false_events(...)       → DataFrame   — ResourceWarning (large dataset); use streaming
+stream_false_events(...)     → Generator   — group of rows per iteration (reduces memory use)
+stream_events(...)           → Generator   — group of rows per iteration (reduces memory use)
+load_raw(...)                → (DataFrame, DataFrame) of (events, truth)
 
 Feature schema (events / false_events)
 ---------------------------------------
@@ -59,23 +59,26 @@ import pyarrow.parquet as pq
 # Logging
 # ─────────────────────────────────────────────────────────────────────────────
 
+""" Note: "_" before the function name indicates that this is an internal helper,
+ made to use in this module only. This way we can adress project root using ".parent.parent"""
 def _setup_logging(script_path: Path = Path(__file__)) -> logging.Logger:
-    log_dir  = script_path.resolve().parent.parent / "logs"
+    # ".resolve()" makes the path absolute; ."parent.parent" points to the project root
+    log_dir  = script_path.resolve().parent.parent / "logs" 
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / f"{script_path.stem}.log"
+    log_file = log_dir / f"{script_path.stem}.log" # ".stem" gives the script name without its extension
     fmt      = logging.Formatter(
         fmt="%(asctime)s  %(name)-20s  %(levelname)-8s  %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-    logger = logging.getLogger(script_path.stem)
-    logger.setLevel(logging.INFO)
-    logger.handlers.clear()
-    fh = logging.FileHandler(log_file, mode="w", encoding="utf-8")
+    logger = logging.getLogger(script_path.stem)  # log name
+    logger.setLevel(logging.INFO)  # Set the logging level to INFO
+    logger.handlers.clear()  # Remove old output destinations to prevent duplicate messages.
+    fh = logging.FileHandler(log_file, mode="w", encoding="utf-8") # Overwrite the log file
     fh.setFormatter(fmt)
-    ch = logging.StreamHandler()
+    ch = logging.StreamHandler() # To show log messages in the console
     ch.setFormatter(fmt)
-    logger.addHandler(fh)
-    logger.addHandler(ch)
+    logger.addHandler(fh) # Send log messages to the file
+    logger.addHandler(ch) # Send log messages to the console
     return logger
 
 
@@ -122,11 +125,8 @@ _LABEL_COLS: frozenset[str] = frozenset([
     "is_ibd", "false_ibd", "pair_type",
 ])
 
-# Approximate per-row size for a 28-feature + 3-label paired DataFrame.
-# Used to warn when load_false_events() would exceed a sensible memory cap.
-_BYTES_PER_ROW_PAIRS = (28 + 3) * 8   # 31 cols × 8 bytes ≈ 248 bytes / row
-_WARN_THRESHOLD_GB   = 2.0
-
+# Estimated size limit for loading all false events at once.
+_WARN_THRESHOLD_GB   = 2.0  
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Internal helpers
@@ -141,11 +141,11 @@ def _ensure_processed() -> None:
             len(missing),
         )
         preprocess_module = importlib.import_module("src.scripts.preprocessing")
-        preprocess_module.run()
+        preprocess_module.run() # Can raise an error if the preprocessing fails
 
         still_missing = [p for p in _PROCESSED_FILES.values() if not p.exists()]
         if still_missing:
-            raise RuntimeError(
+            raise RuntimeError( # Only if .run() worked but didn't produce all expected outputs
                 "Preprocessing completed without creating all data-loader outputs: "
                 + ", ".join(str(path) for path in still_missing)
             )
@@ -155,9 +155,10 @@ def _read_parquet(
     path: Path,
     columns: Optional[list[str]] = None,
 ) -> pd.DataFrame:
+    """ If "columns" is None, ``pq.read_table`` will read all columns 
+    """
     log.info("Reading %s%s", path, f"  cols={columns}" if columns else "")
-    return pq.read_table(path, columns=columns).to_pandas()
-
+    return pq.read_table(path, columns=columns).to_pandas() 
 
 def _apply_sample(
     df: pd.DataFrame,
@@ -167,17 +168,19 @@ def _apply_sample(
     if sample is not None and sample < len(df):
         df = df.sample(n=sample, random_state=random_state).reset_index(drop=True)
         log.info("  sampled → %d rows", len(df))
-    return df
+    return df  # Sampled rows with a reset index (0,1,...), or the unchanged DataFrame if sampling was skipped.
 
 
-def _apply_label_filter(
+def _apply_label_filter( # To keep only rows where the value in label_col matches label
     df: pd.DataFrame,
     label: Optional[str],
     label_col: str = "label_name",
 ) -> pd.DataFrame:
+    """Filter the DataFrame to only include rows where the value in label_col matches label.
+    """
     if label is not None:
         before = len(df)
-        df = df[df[label_col] == label].reset_index(drop=True)
+        df = df[df[label_col] == label].reset_index(drop=True) 
         log.info(
             "  filtered to %s=%r → %d / %d rows",
             label_col, label, len(df), before,
@@ -191,7 +194,7 @@ def _split_columns(
     """Split a user-supplied column list into (feat_cols, label_cols).
 
     Returns ``None`` for a side when no columns from that file were requested,
-    which tells ``pq.read_table`` to load all columns from that file.
+    which tells ``read_parquet`` to load all columns from that file.
     If ``columns`` is ``None``, both sides are ``None`` (load everything).
     """
     if columns is None:

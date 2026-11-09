@@ -184,7 +184,7 @@ def _output_path(row_col: str, x_col: str, y_col: str) -> Path:
         / f"joint_threshold_{x_col}_{y_col}.pdf"
     )
 
-
+# Function to split
 def _build_row_conditions(
     row_col: Optional[str],
     threshold_row: Optional[float],
@@ -450,7 +450,7 @@ def plot_joint_threshold_split(
     x_col: str,
     y_col: str,
     row_col: str,
-    *,
+    *, # To indicate that all following parameters must be passed as keyword arguments.
     threshold_row: Optional[float] = None,
     cat: str = "label_name",
     sample_size: int = 200_000,
@@ -500,6 +500,7 @@ def plot_joint_threshold_split(
     unique_cats = df_clean[cat].unique()
     dfs         = [df_clean[df_clean[cat] == c] for c in unique_cats]
 
+    # ── Compute axis limits from the full cleaned dataset ─────────────────────
     x_lim = df_clean[x_col].quantile(quantile)
     y_lim = df_clean[y_col].quantile(quantile)
     x_min = df_clean[x_col].min()
@@ -539,7 +540,7 @@ def plot_joint_threshold_split(
 
 def plot_all_combos(
     df: pd.DataFrame,
-    *,
+    *, # To indicate that all following parameters must be passed as keyword arguments.
     events_sample_size: int          = 10_000,
     quantile:           float        = 0.99,
     combos:             list[str]    = EVENTS_FEATURE_COLS,

@@ -1,5 +1,5 @@
 from src.data_loader import load_events, load_total, load_false_events
-from src.plots import plot_distributions 
+from src.plots import plot_all_combos, plot_distributions 
 
 
 if __name__ == "__main__":
@@ -10,7 +10,7 @@ if __name__ == "__main__":
     #print("events columns:", events.columns.tolist())
     #print("total  columns:", total.columns.tolist())
     
-    # Pairwise plots for the full per-event dataset
+    ## Pairwise plots for the full per-event dataset
     #plot_all_combos(
     #    total,
     #    combos=TOTAL_FEATURE_COLS,
