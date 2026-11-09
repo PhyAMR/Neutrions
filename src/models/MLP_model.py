@@ -55,26 +55,6 @@ from models.base_model import BaseModel
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Constants
-# ─────────────────────────────────────────────────────────────────────────────
-
-#: Full feature set: 9 individual anchor cols + 9 individual partner cols
-#: + 9 delta cols + 1 derived spatial separation = 28 features total.
-#: Order must match the column order in events_features.parquet.
-FEATURE_NAMES: list[str] = [
-    # Individual anchor measurements
-    "t_1", "E_1", "x_1", "y_1", "z_1", "r_1", "r2_1", "phi_1", "D_1",
-    # Individual partner measurements
-    "t_2", "E_2", "x_2", "y_2", "z_2", "r_2", "r2_2", "phi_2", "D_2",
-    # Delta features
-    "dt", "dE", "dx", "dy", "dz", "dr", "dr2", "dphi", "dD",
-    # Derived spatial separation
-    "dR",
-]
-N_FEATURES: int = len(FEATURE_NAMES)   # 28
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Model
 # ─────────────────────────────────────────────────────────────────────────────
 

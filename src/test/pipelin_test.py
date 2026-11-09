@@ -32,7 +32,15 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import yaml
 
-from src.models.MLP_model import MLPModel, FEATURE_NAMES
+from src.models.MLP_model import MLPModel
+
+# Synthetic schema for this smoke test; real features come from training.yaml.
+FEATURE_NAMES: list[str] = [
+    "t_1", "E_1", "x_1", "y_1", "z_1", "r_1", "r2_1", "phi_1", "D_1",
+    "t_2", "E_2", "x_2", "y_2", "z_2", "r_2", "r2_2", "phi_2", "D_2",
+    "dt", "dE", "dx", "dy", "dz", "dr", "dr2", "dphi", "dD",
+    "dR",
+]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
