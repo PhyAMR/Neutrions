@@ -10,7 +10,7 @@ fit, allowing the trainer's selected feature list to define the model input.
 
 Architecture
 ------------
-Input(n_features) → [Dense → BN → Activation → Dropout] × n_layers
+Input(n_features) → [Dense → BN → Activation → Dropout] times n_layers
                   → Dense(1, sigmoid)
 
 The number of layers, units per layer, activation, dropout rate, and
@@ -33,6 +33,7 @@ Usage
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -43,7 +44,12 @@ import optuna
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 
 import tensorflow as tf
-from tensorflow.keras import callbacks, layers, models, optimizers, regularizers
+
+callbacks = tf.keras.callbacks
+layers = tf.keras.layers
+models = tf.keras.models
+optimizers = tf.keras.optimizers
+regularizers = tf.keras.regularizers
 
 from models.base_model import BaseModel
 
@@ -90,6 +96,8 @@ class MLPModel(BaseModel):
     patience       : EarlyStopping patience on val PR-AUC.  Default 10.
     class_weight   : Dict {0: w0, 1: w1} or None.  Managed per model —
                      the trainer never injects this.
+    input_normalization : Whether to standardize each input feature using
+                          training-set statistics. Default True.
     """
 
     def __init__(self, params: dict[str, Any] | None = None) -> None:
@@ -99,17 +107,23 @@ class MLPModel(BaseModel):
 
     # ── Architecture ──────────────────────────────────────────────────────────
 
-    def _build(self, input_features: int) -> None:
+    def _build(self, input_features: int, X_train: np.ndarray) -> None:
         hidden_units = self.params.get("hidden_units", [256, 128, 64])
         activation   = self.params.get("activation",   "relu")
         dropout_rate = self.params.get("dropout_rate",  0.3)
         use_bn       = self.params.get("use_bn",         True)
         l2           = self.params.get("l2",             0.0)
         lr           = self.params.get("learning_rate",  1e-3)
+        normalize    = self.params.get("input_normalization", True)
         reg          = regularizers.l2(l2) if l2 > 0 else None
 
         inp = layers.Input(shape=(input_features,), name="input")
-        x   = inp
+        if normalize:
+            normalizer = layers.Normalization(axis=-1, name="feature_normalization")
+            normalizer.adapt(np.asarray(X_train, dtype=np.float32))
+            x = normalizer(inp)
+        else:
+            x = inp
 
         for i, units in enumerate(hidden_units):
             x = layers.Dense(
@@ -154,20 +168,32 @@ class MLPModel(BaseModel):
         -------
         self
         """
-        if X_train.ndim != 2 or X_train.shape[1] == 0:
-            raise ValueError(f"Expected a non-empty 2-D training matrix, got {X_train.shape}.")
+        self._validate_input(X_train, name="X_train", check_width=False)
+        self._validate_input(X_val, name="X_val", check_width=False)
+        if X_train.shape[1] == 0:
+            raise ValueError("X_train must contain at least one feature.")
+        if X_train.shape[1] != X_val.shape[1]:
+            raise ValueError(
+                f"Training and validation feature widths differ: "
+                f"{X_train.shape[1]} != {X_val.shape[1]}."
+            )
+        y_train = self._validate_labels(y_train, len(X_train), "y_train")
+        y_val = self._validate_labels(y_val, len(X_val), "y_val")
+        self._validate_training_params()
+
         if self._keras_model is None:
             input_features = X_train.shape[1]
             self._input_features = input_features
-            self._build(input_features)
+            self._build(input_features, X_train)
         self._validate_input(X_train)
         self._validate_input(X_val)
 
+        patience = self.params.get("patience", 10)
         cb = [
             callbacks.EarlyStopping(
                 monitor="val_pr_auc",
                 mode="max",
-                patience=self.params.get("patience", 10),
+                patience=patience,
                 restore_best_weights=True,
                 verbose=0,
             ),
@@ -175,7 +201,7 @@ class MLPModel(BaseModel):
                 monitor="val_pr_auc",
                 mode="max",
                 factor=0.5,
-                patience=max(3, self.params.get("patience", 10) // 3),
+                patience=self._learning_rate_patience(patience),
                 min_lr=1e-6,
                 verbose=0,
             ),
@@ -200,19 +226,31 @@ class MLPModel(BaseModel):
         return self._keras_model.predict(X, verbose=0).ravel()
 
     def save(self, path: Path) -> None:
-        """Save the full Keras model to *path*."""
+        """Save the Keras model and constructor parameters to *path*."""
         if self._keras_model is None:
             raise RuntimeError("MLPModel must be fitted before it can be saved.")
         path = Path(path)
         path.mkdir(parents=True, exist_ok=True)
         self._keras_model.save(path / "mlp_model.keras")
+        with open(path / "mlp_config.json", "w", encoding="utf-8") as config_file:
+            json.dump(self.params, config_file, indent=2)
 
     @classmethod
     def load(cls, path: Path) -> "MLPModel":
         """Reload a saved MLPModel from *path*."""
         path = Path(path)
-        obj  = cls.__new__(cls)
-        obj.params       = {}
+        config_path = path / "mlp_config.json"
+        params = {}
+        if config_path.exists():
+            with open(config_path, "r", encoding="utf-8") as config_file:
+                params = json.load(config_file)
+        if isinstance(params.get("class_weight"), dict):
+            params["class_weight"] = {
+                int(label): weight
+                for label, weight in params["class_weight"].items()
+            }
+
+        obj = cls(params)
         obj._keras_model = tf.keras.models.load_model(path / "mlp_model.keras")
         obj._input_features = int(obj._keras_model.input_shape[-1])
         return obj
@@ -255,13 +293,129 @@ class MLPModel(BaseModel):
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
-    def _validate_input(self, X: np.ndarray) -> None:
-        """Raise if X does not match the model's fitted input width."""
-        if X.ndim != 2 or (
-            self._input_features is not None and X.shape[1] != self._input_features
+    @staticmethod
+    def _learning_rate_patience(early_stopping_patience: int) -> int:
+        return max(1, early_stopping_patience // 3)
+
+    def _validate_input(
+        self,
+        X: np.ndarray,
+        *,
+        name: str = "X",
+        check_width: bool = True,
+    ) -> None:
+        """Validate a feature matrix's dimensions, values, and fitted width."""
+        if not isinstance(X, np.ndarray) or X.ndim != 2 or X.shape[0] == 0:
+            shape = getattr(X, "shape", None)
+            raise ValueError(f"{name} must be a non-empty 2-D numpy array; got {shape}.")
+        if not np.issubdtype(X.dtype, np.number) or not np.isrealobj(X):
+            raise ValueError(f"{name} must contain numeric values; got {X.dtype}.")
+        if not np.isfinite(X).all():
+            raise ValueError(f"{name} contains NaN or infinite values.")
+        if (
+            check_width
+            and self._input_features is not None
+            and X.shape[1] != self._input_features
         ):
-            expected = self._input_features or N_FEATURES
+            expected = self._input_features
             raise ValueError(
-                f"MLPModel expects input of shape (n, {expected}) — "
-                f"{expected} features. Got {X.shape}."
+                f"{name} expects {expected} features from the fitted model; "
+                f"got shape {X.shape}."
             )
+
+    @staticmethod
+    def _validate_labels(
+        labels: np.ndarray,
+        expected_rows: int,
+        name: str,
+    ) -> np.ndarray:
+        """Validate binary labels and return a one-dimensional int array."""
+        labels = np.asarray(labels)
+        if labels.ndim != 1 or len(labels) != expected_rows:
+            raise ValueError(
+                f"{name} must have shape ({expected_rows},); got {labels.shape}."
+            )
+        if labels.dtype != np.bool_ and (
+            not np.issubdtype(labels.dtype, np.number) or not np.isfinite(labels).all()
+        ):
+            raise ValueError(f"{name} must contain finite numeric binary labels.")
+        if not np.isin(labels, (0, 1)).all():
+            raise ValueError(f"{name} must contain only binary labels 0 and 1.")
+        if np.unique(labels).size != 2:
+            raise ValueError(f"{name} must contain examples from both classes 0 and 1.")
+        return labels.astype(np.int32, copy=False)
+
+    def _validate_training_params(self) -> None:
+        """Fail early for invalid MLP training hyperparameters."""
+        hidden_units = self.params.get("hidden_units", [256, 128, 64])
+        if not isinstance(hidden_units, (list, tuple)) or not hidden_units:
+            raise ValueError("hidden_units must be a non-empty list of positive integers.")
+        if any(
+            not isinstance(units, (int, np.integer))
+            or isinstance(units, bool)
+            or units <= 0
+            for units in hidden_units
+        ):
+            raise ValueError("hidden_units must be a non-empty list of positive integers.")
+
+        activation = self.params.get("activation", "relu")
+        if not isinstance(activation, str) or activation not in {"relu", "elu", "tanh"}:
+            raise ValueError("activation must be one of: relu, elu, tanh.")
+
+        dropout_rate = self.params.get("dropout_rate", 0.3)
+        if (
+            not isinstance(dropout_rate, (int, float, np.number))
+            or isinstance(dropout_rate, bool)
+            or not np.isfinite(dropout_rate)
+            or not 0 <= dropout_rate < 1
+        ):
+            raise ValueError("dropout_rate must be finite and in the interval [0, 1).")
+
+        learning_rate = self.params.get("learning_rate", 1e-3)
+        if (
+            not isinstance(learning_rate, (int, float, np.number))
+            or isinstance(learning_rate, bool)
+            or not np.isfinite(learning_rate)
+            or learning_rate <= 0
+        ):
+            raise ValueError("learning_rate must be finite and positive.")
+
+        l2 = self.params.get("l2", 0.0)
+        if (
+            not isinstance(l2, (int, float, np.number))
+            or isinstance(l2, bool)
+            or not np.isfinite(l2)
+            or l2 < 0
+        ):
+            raise ValueError("l2 must be finite and non-negative.")
+
+        for name, default in (("epochs", 100), ("batch_size", 256), ("patience", 10)):
+            value = self.params.get(name, default)
+            if (
+                not isinstance(value, (int, np.integer))
+                or isinstance(value, bool)
+                or value <= 0
+            ):
+                raise ValueError(f"{name} must be a positive integer.")
+
+        for name in ("use_bn", "input_normalization"):
+            if name in self.params and not isinstance(self.params[name], bool):
+                raise ValueError(f"{name} must be a boolean.")
+
+        class_weight = self.params.get("class_weight")
+        if class_weight is not None:
+            if (
+                not isinstance(class_weight, dict)
+                or set(class_weight) != {0, 1}
+                or any(
+                    not isinstance(weight, (int, float, np.number))
+                    or isinstance(weight, bool)
+                    or not np.isfinite(weight)
+                    or weight < 0
+                    for weight in class_weight.values()
+                )
+            ):
+                raise ValueError(
+                    "class_weight must map both integer labels 0 and 1 "
+                    "to finite non-negative weights."
+                )
