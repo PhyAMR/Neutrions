@@ -107,12 +107,14 @@ def load_config(config_path: str | Path = "config/training.yaml") -> dict:
 # Data loading and splitting
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _load_data(cfg: dict) -> tuple[np.ndarray, np.ndarray, list[str]]:
+def _load_data(
+    cfg: dict,
+) -> tuple[np.ndarray, np.ndarray, list[str], dict[str, np.ndarray] | None]:
     """Load features and encoded binary labels from processed parquet files.
 
     Returns
     -------
-    (X, y, feature_names)
+    (X, y, feature_names, metadata)
     X : float64 array of shape (n_samples, n_features)
     y : int array of shape (n_samples,) — 1 = detected, 0 = radio
     feature_names : list of column names in X
@@ -125,6 +127,30 @@ def _load_data(cfg: dict) -> tuple[np.ndarray, np.ndarray, list[str]]:
 
     log.info("Loading labels from %s …", label_path)
     y_df = pq.read_table(label_path).to_pandas()
+
+    if len(X_df) != len(y_df):
+        raise ValueError(
+            f"Features and labels row counts differ: {len(X_df)} != {len(y_df)}."
+        )
+
+    split_strategy = cfg["data"].get("split_strategy", "stratified_random")
+    metadata = None
+    if split_strategy == "chronological_time_blocks":
+        metadata_columns = [
+            "event_id_1", "event_id_2",
+            "time_block_id_1", "time_block_id_2",
+        ]
+        missing = [column for column in metadata_columns if column not in y_df.columns]
+        if missing:
+            raise ValueError(
+                "Grouped splitting requires endpoint metadata in the labels file: "
+                + ", ".join(missing)
+                + ". Regenerate processed data with the updated preprocessing script."
+            )
+        if "t_1" not in X_df.columns:
+            raise ValueError("Grouped splitting requires the anchor timestamp t_1.")
+        metadata = {column: y_df[column].to_numpy() for column in metadata_columns}
+        metadata["t_1"] = X_df["t_1"].to_numpy()
 
     # Optional column projection
     include = cfg["features"].get("include") or []
@@ -151,7 +177,7 @@ def _load_data(cfg: dict) -> tuple[np.ndarray, np.ndarray, list[str]]:
         y.sum(), 100 * y.mean(),
         (y == 0).sum(), 100 * (1 - y.mean()),
     )
-    return X, y, feature_names
+    return X, y, feature_names, metadata
 
 
 def _stratified_split(
@@ -210,6 +236,99 @@ def _stratified_split(
             name, len(Xs), 100 * ys.mean(),
         )
     return splits
+
+
+def _chronological_time_block_split(
+    X: np.ndarray,
+    y: np.ndarray,
+    metadata: dict[str, np.ndarray],
+    cfg: dict,
+    time_origin: int,
+) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """Split chronologically by whole blocks; exclude cross-split pairs and guards."""
+    data_cfg = cfg["data"]
+    ratios = data_cfg["splits"]
+    split_names = ["train", "val", "calibration", "test"]
+    fractions = np.asarray([ratios[name] for name in split_names], dtype=float)
+
+    if np.any(fractions <= 0) or not np.isclose(fractions.sum(), 1.0):
+        raise ValueError("Grouped split fractions must be positive and sum to 1.0.")
+
+    block_duration_ns = int(data_cfg["block_duration_ns"])
+    boundary_guard_ns = int(data_cfg.get("boundary_guard_ns", 0))
+    if block_duration_ns <= 0 or boundary_guard_ns < 0:
+        raise ValueError("block_duration_ns must be positive and boundary_guard_ns non-negative.")
+
+    block_1 = metadata["time_block_id_1"].astype(np.int64, copy=False)
+    block_2 = metadata["time_block_id_2"].astype(np.int64, copy=False)
+    occupied_blocks = np.unique(np.concatenate([block_1, block_2]))
+    if len(occupied_blocks) < 20:
+        raise ValueError(
+            f"Only {len(occupied_blocks)} occupied time blocks; at least 20 are "
+            "required for the configured four-way chronological split."
+        )
+
+    cut_indices = np.floor(np.cumsum(fractions[:-1]) * len(occupied_blocks)).astype(int)
+    block_counts = np.diff(np.concatenate(([0], cut_indices, [len(occupied_blocks)])))
+    if np.any(block_counts == 0):
+        raise ValueError("The number of occupied blocks is too small for these split ratios.")
+
+    cut_blocks = occupied_blocks[cut_indices]
+    split_by_block_1 = np.searchsorted(cut_blocks, block_1, side="right")
+    split_by_block_2 = np.searchsorted(cut_blocks, block_2, side="right")
+    same_split = split_by_block_1 == split_by_block_2
+
+    cut_times = time_origin + cut_blocks * block_duration_ns
+    anchor_times = metadata["t_1"]
+    safe_context = np.ones(len(y), dtype=bool)
+    for boundary in cut_times:
+        safe_context &= (
+            (anchor_times < boundary - boundary_guard_ns)
+            | (anchor_times >= boundary + boundary_guard_ns)
+        )
+
+    keep = same_split & safe_context
+    row_indices = {
+        name: np.flatnonzero(keep & (split_by_block_1 == split_number))
+        for split_number, name in enumerate(split_names)
+    }
+
+    seen_event_ids: dict[str, np.ndarray] = {}
+    for name, indices in row_indices.items():
+        if len(indices) == 0 or np.unique(y[indices]).size < 2:
+            raise ValueError(
+                f"Grouped split {name!r} has {len(indices)} rows or only one class. "
+                "Adjust block_duration_ns or split boundaries."
+            )
+        event_ids = np.unique(np.concatenate((
+            metadata["event_id_1"][indices],
+            metadata["event_id_2"][indices],
+        )))
+        for other_name, other_ids in seen_event_ids.items():
+            if np.intersect1d(event_ids, other_ids, assume_unique=True).size:
+                raise RuntimeError(
+                    f"Raw event IDs overlap between {other_name!r} and {name!r} splits."
+                )
+        seen_event_ids[name] = event_ids
+
+        log.info(
+            "Split %-13s : %7d rows | pos=%.1f%% | blocks=%d",
+            name, len(indices), 100 * y[indices].mean(), block_counts[split_names.index(name)],
+        )
+
+    cross_split_count = int((~same_split).sum())
+    guard_count = int((same_split & ~safe_context).sum())
+    excluded_true_pairs = int(y[~keep].sum())
+    log.info(
+        "Grouped split excluded %d cross-split pairs and %d guard-region pairs "
+        "(%d positive IBD pairs total).",
+        cross_split_count, guard_count, excluded_true_pairs,
+    )
+
+    return {
+        name: (X[indices], y[indices])
+        for name, indices in row_indices.items()
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -408,10 +527,32 @@ def run(
     model_name = model_cls.__name__
 
     # ── 1. Load data ──────────────────────────────────────────────────────────
-    X, y, feature_names = _load_data(cfg)
+    X, y, feature_names, split_metadata = _load_data(cfg)
 
-    # ── 2. Stratified split ───────────────────────────────────────────────────
-    splits = _stratified_split(X, y, cfg)
+    # ── 2. Dataset split ──────────────────────────────────────────────────────
+    split_strategy = cfg["data"].get("split_strategy", "stratified_random")
+    if split_strategy == "stratified_random":
+        splits = _stratified_split(X, y, cfg)
+    elif split_strategy == "chronological_time_blocks":
+        if split_metadata is None:
+            raise ValueError("Chronological grouped splitting requires endpoint metadata.")
+        parameters_path = Path(cfg["data"]["parameters_path"])
+        if not parameters_path.exists():
+            raise FileNotFoundError(
+                f"Preprocessing parameters not found: {parameters_path}. "
+                "Regenerate processed data with the current preprocessing script."
+            )
+        with np.load(parameters_path) as parameters:
+            time_origin = int(parameters["time_origin"])
+        splits = _chronological_time_block_split(
+            X, y, split_metadata, cfg, time_origin=time_origin
+        )
+    else:
+        raise ValueError(
+            f"Unknown split strategy {split_strategy!r}. "
+            "Choose 'stratified_random' or 'chronological_time_blocks'."
+        )
+
     X_tr, y_tr = splits["train"]
     X_vl, y_vl = splits["val"]
     X_ca, y_ca = splits["calibration"]

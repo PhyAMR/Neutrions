@@ -115,6 +115,7 @@ _FEAT_COLS: frozenset[str] = frozenset([
 
 _LABEL_COLS: frozenset[str] = frozenset([
     "event_id_1", "event_id_2",
+    "time_block_id_1", "time_block_id_2",
     "pair_id_1", "pair_id_2",
     "label_1", "label_2",
     "label_name_1", "label_name_2",

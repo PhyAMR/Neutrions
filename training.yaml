@@ -8,6 +8,7 @@
 data:
   features_path: "data/processed/events_features.parquet"
   labels_path:   "data/processed/events_labels.parquet"
+  parameters_path: "data/processed/parameters.npz"
 
   # Column in labels file that defines the binary target.
   # 1 -> is_ibd, 0 -> not_ibd
@@ -16,11 +17,14 @@ data:
 
   # Stratified split ratios (must sum to 1.0)
   # train / val / calibration / test
+  split_strategy: "chronological_time_blocks"
+  block_duration_ns: 3600000000000  # 1 hour; choose based on the run
+  boundary_guard_ns: 22000000        # 22 ms for the current off-time window
   splits:
-    train:       0.60
-    val:         0.15
+    train: 0.60
+    val: 0.15
     calibration: 0.10
-    test:        0.15
+    test: 0.15
 
   # Reproducibility seed for all splits and samplers
   random_seed: 42
