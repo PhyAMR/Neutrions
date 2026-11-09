@@ -44,6 +44,7 @@ Usage
 
 from __future__ import annotations
 
+import importlib
 import logging
 import warnings
 from collections.abc import Generator
@@ -112,9 +113,13 @@ _FEAT_COLS: frozenset[str] = frozenset([
                      "n_in_window", "is_dc",
 ])
 
-
-
-_LABEL_COLS: frozenset[str] = frozenset(["pair_id","label_name_1","label_name_2"])
+_LABEL_COLS: frozenset[str] = frozenset([
+    "event_id_1", "event_id_2",
+    "pair_id_1", "pair_id_2",
+    "label_1", "label_2",
+    "label_name_1", "label_name_2",
+    "is_ibd", "false_ibd", "pair_type",
+])
 
 # Approximate per-row size for a 28-feature + 3-label paired DataFrame.
 # Used to warn when load_false_events() would exceed a sensible memory cap.
@@ -131,11 +136,18 @@ def _ensure_processed() -> None:
     missing = [p for p in _PROCESSED_FILES.values() if not p.exists()]
     if missing:
         log.warning(
-            "%d processed file(s) missing — running preprocess.run() …",
+            "%d processed file(s) missing — running src.scripts.preprocessing.run() …",
             len(missing),
         )
-        from preprocess import run as _preprocess_run
-        _preprocess_run()
+        preprocess_module = importlib.import_module("src.scripts.preprocessing")
+        preprocess_module.run()
+
+        still_missing = [p for p in _PROCESSED_FILES.values() if not p.exists()]
+        if still_missing:
+            raise RuntimeError(
+                "Preprocessing completed without creating all data-loader outputs: "
+                + ", ".join(str(path) for path in still_missing)
+            )
 
 
 def _read_parquet(
