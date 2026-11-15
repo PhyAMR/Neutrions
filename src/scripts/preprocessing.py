@@ -45,6 +45,7 @@ RAW_FILES = {
     "truth":  RAW_DIR / "truth.parquet",
 }
 
+# Still not created files but rutes to store the processed data.
 PROCESSED_FILES = {
     "total_features":         PROCESSED_DIR / "total_features.parquet",
     "total_labels":           PROCESSED_DIR / "total_labels.parquet",
@@ -55,8 +56,9 @@ PROCESSED_FILES = {
     "parameters":    PROCESSED_DIR / "parameters.npz",
 }
 
-#: Raw column names assigned after concat of events + truth parquet files.
-#: The 4 engineered coordinates are appended separately in _load_raw.
+#: Required columns expected in the input events.parquet file.
+#: The r, r2, phi, and distance columns are computed later in _load_raw()
+# from the x, y, and z coordinates.
 EVENT_COLS_TOTAL = [
     "time", "energy", "x", "y", "z",
 ]
@@ -91,24 +93,37 @@ _INDIV_BASE = list(_RAW_TO_PHYS.values())   # ['t','E','x','y','z','r','r2','phi
 EVENTS_INDIV_COLS = (
     [f"{p}_1" for p in _INDIV_BASE] +
     [f"{p}_2" for p in _INDIV_BASE] + 
-    ["dwall_1", "dwall_2"]
+    ["dwall_1", "dwall_2"] # Wall distance for each event in the pair.
 )
 
 # Delta columns: Δt, ΔE, Δx, Δy, Δz, Δr, Δr2, Δphi, ΔD + derived ΔR
 EVENTS_DELTA_COLS = [f"d{p}" for p in _INDIV_BASE] + ["dR"]
 # dR = sqrt(dx²+dy²+dz²) — 3D spatial separation, key IBD discriminant
+# Note that Δr is the difference in horizontal distance from the detector center, 
+# while ΔR is the true 3D separation.
 
 # Label columns kept in the output: We store all the labels that indicate the nature of
 # the event
 EVENTS_LABEL_COLS = ["event_id_1", "event_id_2", "time_block_id_1", "time_block_id_2", "pair_id_1", "pair_id_2", "label_1", "label_2", "label_name_1", "label_name_2", "is_ibd", "false_ibd", "pair_type"]
 
+# Temporal-window context and event-count metadata saved for each pair.
+# These columns do not define the target label or filter rows; they are
+# available for analysis and could be using for training if selected in training.yaml.
+# - k_window: index of the time window containing the pair (0 for on-time pairs).
+# - dt_shifted: pair time difference relative to the start of that window.
+# - n_before: events within one threshold interval before the anchor event.
+# - n_on: events in the immediate on-time window after the anchor event.
+# - n_gap: events in the on-time and earlier shifted windows before this pair's window.
+# - n_in_window: events in the same time window as the pair.
+# - is_dc: flag set when n_before == 0, n_gap == 0, and n_in_window == 1.
 EVENTS_COUNTS_COLS = ["k_window", "dt_shifted", "n_before", "n_on", "n_gap",
                      "n_in_window", "is_dc"]
+
 
 EVENTS_FEATURE_COLS = EVENTS_INDIV_COLS + EVENTS_DELTA_COLS + EVENTS_COUNTS_COLS
 
 # All columns that must be non-null to keep a paired row
-REQUIRED_EVENT_COLS =   EVENTS_LABEL_COLS + EVENTS_FEATURE_COLS 
+REQUIRED_EVENT_COLS = EVENTS_LABEL_COLS + EVENTS_FEATURE_COLS 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging
